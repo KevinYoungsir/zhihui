@@ -2,14 +2,7 @@
 
 You can run the full product on your own machine or server: web canvas, Design Agent, API, collab, and a database.
 
-**Two supported paths (same stack: MySQL + MinIO + Redis):**
-
-| | Command |
-|--|---------|
-| **Local** | `npm run setup:local` → `npm run dev:api` / `dev:worker` / `dev:web` |
-| **Production** | `bash deploy/vps/deploy.sh` — see [deploy/vps/README.zh-CN.md](../deploy/vps/README.zh-CN.md) |
-
-Docker Compose is the infra for both. Desktop (Tauri): **[desktop.md](./desktop.md)** (sidecar / cloud API — separate from web deploy).
+Docker Compose is the default (**MySQL** + **MinIO** + Redis + web + API + **Yjs**). Local npm dev uses the same **MySQL + MinIO** stack via `npm run dev:infra`. Empty `DATABASE_URL` (without MySQL in `.env`) falls back to **SQLite**. Desktop (Tauri): **[desktop.md](./desktop.md)** — **Local** (sidecar + SQLite) / **Cloud** (same API as the browser).
 
 ## What you get
 
@@ -36,9 +29,10 @@ Host tools can reach MySQL at `127.0.0.1:3306` (same user/password). Change via 
 
 **Quality gates (Pytest / Playwright / k6 / Prometheus):** [quality-gates.md](./quality-gates.md).
 
-**Local:** `npm run setup:local` (MySQL + Redis + MinIO). Env: `apps/api/.env.selfhost.example` → Local block.
+**Dev without Docker MySQL:** leave `DATABASE_URL` empty → SQLite at `storage/recombyn.db`.  
+**Recommended local dev:** `npm run dev:infra` then set `DATABASE_URL=mysql://recombyn:recombyn@127.0.0.1:3306/recombyn` and MinIO vars in `apps/api/.env` (see `apps/api/.env.selfhost.example`).
 
-Object storage is **MinIO** (`S3_ENABLED=true`). Bucket `recombyn` is created on first boot. Do not use Tencent COS for new deploys.
+Object storage defaults to **MinIO** (`S3_ENABLED=true`). Bucket `recombyn` is created on first boot; public read URLs use `S3_PUBLIC_BASE_URL` (local: `http://127.0.0.1:9000/recombyn`). Do not use Tencent COS unless you intentionally switch back.
 
 Default config loads from seed JSON under `apps/api/seeds/` on first API start.
 

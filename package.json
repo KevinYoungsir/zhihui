@@ -26,7 +26,6 @@
     "dev:api": "node scripts/dev-api.mjs",
     "dev:worker": "node scripts/dev-worker.mjs",
     "dev:infra": "docker compose up -d mysql redis minio minio-init",
-    "dev:tunnel": "powershell -ExecutionPolicy Bypass -File scripts/dev-tunnel.ps1",
     "setup:local": "powershell -ExecutionPolicy Bypass -File scripts/setup-local.ps1",
     "gen:contracts": "npm run gen --workspace=@recombyn/contracts",
     "build": "turbo run build --filter=@recombyn/web",

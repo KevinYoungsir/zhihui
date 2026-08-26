@@ -194,13 +194,6 @@ function MenuItem({
   );
 }
 
-const GENERATOR_MENU_SHORTCUT: Record<GeneratorPickAction, string> = {
-  spawnImageGenerator: 'A',
-  spawnVideoGenerator: 'Shift A',
-  spawnLottieGenerator: 'M',
-  spawnAudioGenerator: 'U',
-};
-
 function GeneratorFlyoutButtons({
   onPick,
 }: {
@@ -228,12 +221,14 @@ function GeneratorFlyoutButtons({
   return (
     <>
       {rows.map((row) => (
-        <MenuItem
+        <button
           key={row.action}
-          label={row.label}
-          shortcut={GENERATOR_MENU_SHORTCUT[row.action]}
+          type="button"
+          className={itemClass}
           onClick={() => onPick(row.action)}
-        />
+        >
+          <span className="min-w-0 flex-1 truncate">{row.label}</span>
+        </button>
       ))}
     </>
   );
@@ -275,7 +270,7 @@ function GeneratorSubmenu({
       return;
     }
     const rect = rowRef.current.getBoundingClientRect();
-    const flyoutW = 216;
+    const flyoutW = 176;
     const flyoutH = 152;
     const preferRight = window.innerWidth - rect.right >= flyoutW + 8;
     const left = preferRight ? rect.right + 4 : Math.max(PAD, rect.left - flyoutW - 4);
@@ -331,7 +326,7 @@ function GeneratorSubmenu({
             <div
               role="menu"
               data-ctx-menu-flyout
-              className="fixed z-[80] min-w-[13.5rem] overflow-hidden rounded-xl bg-[var(--surface)] py-1 shadow-lg ring-1 ring-[var(--line)]"
+              className="fixed z-[80] min-w-[11rem] overflow-hidden rounded-xl bg-[var(--surface)] py-1 shadow-lg ring-1 ring-[var(--line)]"
               style={{ left: flyoutPos.left, top: flyoutPos.top }}
               onMouseEnter={openMenu}
               onMouseLeave={scheduleClose}
