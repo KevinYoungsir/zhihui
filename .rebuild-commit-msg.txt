@@ -1,0 +1,5 @@
+fix: upload jobs, strict storage errors, and relocate OSS stubs
+
+Share upload job temp dir with the worker volume.
+Surface object-storage failures instead of silent local fallback.
+Unify local API port config and add self-host helpers.
