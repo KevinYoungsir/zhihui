@@ -53,4 +53,33 @@ describe('AgentRuntimeBroker', () => {
     expect(cli.startRun).toHaveBeenCalledWith(request);
     expect(api.startRun).not.toHaveBeenCalled();
   });
+
+  it('reports an unavailable runtime configuration', async () => {
+    const broker = new AgentRuntimeBroker([adapter('api')]);
+    await expect(
+      broker.startRun(
+        { ...request, runtime: 'cli' },
+        { mode: 'cli', cliAgentId: 'codex' }
+      )
+    ).rejects.toThrow('Agent runtime is not configured: cli');
+  });
+
+  it('forwards cancel to the adapter that owns the run', async () => {
+    const bus = new AgentRunEventBus();
+    let settle = () => undefined;
+    const pending = new Promise<void>((resolve) => { settle = resolve; });
+    const api: AgentRuntimeAdapter = {
+      mode: 'api',
+      startRun: vi.fn(() => pending),
+      cancelRun: vi.fn(async () => { settle(); }),
+      subscribe: (listener) => bus.subscribe(listener),
+      probe: vi.fn(async () => ({ available: true })),
+    };
+    const broker = new AgentRuntimeBroker([api]);
+    const running = broker.startRun(request);
+    await Promise.resolve();
+    await broker.cancelRun(request.runId);
+    await running;
+    expect(api.cancelRun).toHaveBeenCalledWith(request.runId);
+  });
 });

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from app.services.mcp import run_grants
@@ -75,4 +77,19 @@ def test_revoke_invalidates_grant(monkeypatch):
     )
     assert run_grants.revoke_run_grant(user_id="user-1", run_id="run-1")
     with pytest.raises(run_grants.McpRunGrantError):
+        run_grants.validate_run_grant(token, run_id="run-1", tool="create_text")
+
+
+def test_expired_grant_is_rejected(monkeypatch):
+    redis = FakeRedis()
+    monkeypatch.setattr(run_grants, "_redis", lambda: redis)
+    monkeypatch.setattr(run_grants, "exposed_tool_names", lambda: frozenset({"create_text"}))
+    token, _ = run_grants.mint_run_grant(
+        user_id="user-1", project_id="project-1", run_id="run-1"
+    )
+    grant_key = next(key for key in redis.store if key.startswith("mcp:run-grant:") and "index" not in key)
+    payload = json.loads(redis.store[grant_key])
+    payload["expires_at"] = 0
+    redis.store[grant_key] = json.dumps(payload)
+    with pytest.raises(run_grants.McpRunGrantError, match="expired"):
         run_grants.validate_run_grant(token, run_id="run-1", tool="create_text")
