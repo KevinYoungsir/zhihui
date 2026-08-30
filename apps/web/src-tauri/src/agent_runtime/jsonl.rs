@@ -82,7 +82,7 @@ pub fn parse_codex_jsonl(run_id: &str, line: &str) -> Option<CodexRunEvent> {
       ok: Some(true),
       code: None,
     }),
-    "turn.failed" | "error" => Some(CodexRunEvent {
+    "turn.failed" => Some(CodexRunEvent {
       run_id: run_id.to_string(),
       kind: "run.error".to_string(),
       text: string_at(&value, &["error", "message"])
@@ -91,7 +91,19 @@ pub fn parse_codex_jsonl(run_id: &str, line: &str) -> Option<CodexRunEvent> {
       tool: None,
       call_id: None,
       ok: Some(false),
-      code: Some(if event_type == "turn.failed" { "codex_turn_failed" } else { "codex_error" }.to_string()),
+      code: Some("codex_turn_failed".to_string()),
+    }),
+    // Codex emits top-level error records while its sampler reconnects. The
+    // turn remains alive until a later turn.completed or turn.failed record.
+    "error" => Some(CodexRunEvent {
+      run_id: run_id.to_string(),
+      kind: "progress".to_string(),
+      text: string_at(&value, &["message"]),
+      phase: Some("reconnecting".to_string()),
+      tool: None,
+      call_id: None,
+      ok: None,
+      code: None,
     }),
     other => Some(CodexRunEvent {
       run_id: run_id.to_string(),
@@ -136,5 +148,16 @@ mod tests {
   #[test]
   fn ignores_non_json_lines() {
     assert!(parse_codex_jsonl("run-1", "not json").is_none());
+  }
+
+  #[test]
+  fn treats_reconnect_errors_as_non_terminal_progress() {
+    let event = parse_codex_jsonl(
+      "run-1",
+      r#"{"type":"error","message":"Reconnecting... 2/5 (request timed out)"}"#,
+    )
+    .unwrap();
+    assert_eq!(event.kind, "progress");
+    assert_eq!(event.phase.as_deref(), Some("reconnecting"));
   }
 }
