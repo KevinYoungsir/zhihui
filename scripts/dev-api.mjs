@@ -19,6 +19,7 @@ function devApiEnv() {
   // Prefer .env over a stale shell DATABASE_URL.
   const fileEnv = loadApiDotEnv();
   const env = { ...process.env, ...fileEnv, RECOMBYN_API_ROOT: apiRoot };
+  env.MCP_CANVAS_ENABLED = env.MCP_CANVAS_ENABLED || 'true';
   const db = String(env.DATABASE_URL || '').trim();
   if (!db) {
     console.error(

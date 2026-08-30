@@ -52,7 +52,11 @@ function spawnDesktopApi() {
   return spawn(py, ['-m', 'uvicorn', 'app.main:app', '--host', HOST, '--port', String(PORT)], {
     cwd: apiRoot,
     stdio: 'inherit',
-    env: { ...process.env, RECOMBYN_API_ROOT: apiRoot },
+    env: {
+      ...process.env,
+      RECOMBYN_API_ROOT: apiRoot,
+      MCP_CANVAS_ENABLED: process.env.MCP_CANVAS_ENABLED || 'true',
+    },
     shell: false,
     detached: false,
     windowsHide: true,
