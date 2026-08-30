@@ -36,7 +36,7 @@ function cliPrompt(userMessage: string): string {
 }
 
 function runtimeEventToAgentStep(event: AgentRunEvent): AgentStepEvent | null {
-  if (event.type === 'text.delta') return { type: 'token', text: event.text };
+  if (event.type === 'message.delta') return { type: 'token', text: event.text };
   if (event.type === 'tool.call') {
     return {
       type: 'activity',
@@ -81,6 +81,8 @@ export class AgentRuntimeController {
       runId,
       projectId,
       prompt: preference.mode === 'cli' ? cliPrompt(params.userMessage) : params.userMessage,
+      selectedObjectIds: [],
+      runtime: preference.mode,
       sessionId: params.sessionId || undefined,
       locale: params.locale || undefined,
       model: params.model,

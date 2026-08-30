@@ -21,7 +21,7 @@ describe('CodexCliRuntimeAdapter', () => {
   it('mints a scoped grant and revokes it on completion', async () => {
     const { bridge, grants, emit } = harness();
     const adapter = new CodexCliRuntimeAdapter(bridge, grants);
-    const running = adapter.startRun({ runId: 'run-1', projectId: 'project-1', prompt: 'create title' });
+    const running = adapter.startRun({ runId: 'run-1', projectId: 'project-1', prompt: 'create title', selectedObjectIds: [], runtime: 'cli' });
     await vi.waitFor(() => expect(bridge.start).toHaveBeenCalled());
     expect(grants.create).toHaveBeenCalledWith('run-1', 'project-1');
     expect(bridge.start).toHaveBeenCalledWith(expect.objectContaining({ grantToken: 'mcp_run_secret' }));
@@ -33,7 +33,7 @@ describe('CodexCliRuntimeAdapter', () => {
   it('kills the desktop run and revokes access on cancel', async () => {
     const { bridge, grants } = harness();
     const adapter = new CodexCliRuntimeAdapter(bridge, grants);
-    const running = adapter.startRun({ runId: 'run-2', projectId: 'project-1', prompt: 'create title' });
+    const running = adapter.startRun({ runId: 'run-2', projectId: 'project-1', prompt: 'create title', selectedObjectIds: [], runtime: 'cli' });
     await vi.waitFor(() => expect(bridge.start).toHaveBeenCalled());
     await adapter.cancelRun('run-2');
     await running;
@@ -47,7 +47,7 @@ describe('CodexCliRuntimeAdapter', () => {
     const adapter = new CodexCliRuntimeAdapter(bridge, grants);
     const events: string[] = [];
     adapter.subscribe((event) => events.push(event.type));
-    await adapter.startRun({ runId: 'run-3', projectId: 'project-1', prompt: 'create title' });
+    await adapter.startRun({ runId: 'run-3', projectId: 'project-1', prompt: 'create title', selectedObjectIds: [], runtime: 'cli' });
     expect(events).toContain('run.error');
     expect(grants.create).not.toHaveBeenCalled();
     expect(bridge.start).not.toHaveBeenCalled();
@@ -61,7 +61,7 @@ describe('CodexCliRuntimeAdapter', () => {
     adapter.subscribe((event) => {
       if (event.type === 'run.error') errors.push(event.code);
     });
-    await adapter.startRun({ runId: 'run-4', projectId: 'project-1', prompt: 'create title' });
+    await adapter.startRun({ runId: 'run-4', projectId: 'project-1', prompt: 'create title', selectedObjectIds: [], runtime: 'cli' });
     expect(errors).toContain('codex_login_required');
     expect(grants.create).not.toHaveBeenCalled();
   });
@@ -69,7 +69,7 @@ describe('CodexCliRuntimeAdapter', () => {
   it('revokes the grant when the Codex process reports a crash', async () => {
     const { bridge, grants, emit } = harness();
     const adapter = new CodexCliRuntimeAdapter(bridge, grants);
-    const running = adapter.startRun({ runId: 'run-5', projectId: 'project-1', prompt: 'create title' });
+    const running = adapter.startRun({ runId: 'run-5', projectId: 'project-1', prompt: 'create title', selectedObjectIds: [], runtime: 'cli' });
     await vi.waitFor(() => expect(bridge.start).toHaveBeenCalled());
     emit({ runId: 'run-5', kind: 'run.error', code: 'codex_process_failed' });
     await running;

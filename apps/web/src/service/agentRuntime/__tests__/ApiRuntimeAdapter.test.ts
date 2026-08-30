@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ApiRuntimeAdapter } from '../ApiRuntimeAdapter';
 
-const request = { runId: 'api-run-1', projectId: 'project-1', prompt: 'create title' };
+const request = {
+  runId: 'api-run-1',
+  projectId: 'project-1',
+  prompt: 'create title',
+  selectedObjectIds: [],
+  runtime: 'api' as const,
+};
 
 describe('ApiRuntimeAdapter', () => {
   it('normalizes executor failures', async () => {

@@ -8,17 +8,19 @@ export type AgentRuntimePreference = {
 };
 
 export type CliAgentCapabilities = {
-  conversation: boolean;
-  canvasTools: boolean;
-  imageGeneration: boolean;
-  streamingJsonl: boolean;
-  cancellation: boolean;
+  mcp: boolean;
+  streaming: boolean;
+  cancel: boolean;
+  attachments: boolean;
 };
 
 export type CliAgentDescriptor = {
   id: 'codex';
-  displayName: string;
+  name: string;
   executableName: 'codex';
+  installed: boolean;
+  version?: string;
+  authState: 'ready' | 'login_required' | 'unknown' | 'unavailable';
   capabilities: CliAgentCapabilities;
 };
 
@@ -26,6 +28,8 @@ export type AgentRunRequest = {
   runId: string;
   projectId: string;
   prompt: string;
+  selectedObjectIds: string[];
+  runtime: AgentRuntimeMode;
   sessionId?: string;
   locale?: string;
   model?: string | null;
@@ -41,7 +45,13 @@ type AgentRunEventBase = {
 
 export type AgentRunEvent =
   | (AgentRunEventBase & { type: 'run.started' })
-  | (AgentRunEventBase & { type: 'text.delta'; text: string })
+  | (AgentRunEventBase & { type: 'message.delta'; text: string })
+  | (AgentRunEventBase & { type: 'thinking'; text: string })
+  | (AgentRunEventBase & {
+      type: 'activity';
+      phase: string;
+      detail?: string;
+    })
   | (AgentRunEventBase & {
       type: 'progress';
       phase: string;
@@ -94,13 +104,14 @@ export interface AgentRuntimeAdapter {
 
 export const CODEX_CLI_AGENT: CliAgentDescriptor = {
   id: 'codex',
-  displayName: 'Codex CLI',
+  name: 'Codex CLI',
   executableName: 'codex',
+  installed: false,
+  authState: 'unknown',
   capabilities: {
-    conversation: true,
-    canvasTools: true,
-    imageGeneration: false,
-    streamingJsonl: true,
-    cancellation: true,
+    mcp: true,
+    streaming: true,
+    cancel: true,
+    attachments: false,
   },
 };

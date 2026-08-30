@@ -120,7 +120,7 @@ export function createRunDesignAgentExecutor(
       createParams(request, context.signal, (step) => {
         if (step.type === 'token' && step.text) {
           context.emit({
-            type: 'text.delta',
+            type: 'message.delta',
             text: step.text,
             runId: request.runId,
             projectId: request.projectId,

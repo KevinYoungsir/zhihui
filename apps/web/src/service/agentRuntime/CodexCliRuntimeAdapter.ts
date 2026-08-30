@@ -116,7 +116,7 @@ export class CodexCliRuntimeAdapter implements AgentRuntimeAdapter {
     const { request } = active;
     let event: AgentRunEvent;
     if (native.kind === 'text.delta') {
-      event = this.event(request, { type: 'text.delta', text: native.text || '' });
+      event = this.event(request, { type: 'message.delta', text: native.text || '' });
     } else if (native.kind === 'tool.call') {
       event = this.event(request, { type: 'tool.call', callId: native.callId, tool: native.tool || 'canvas', arguments: {} });
     } else if (native.kind === 'tool.result') {
@@ -128,7 +128,7 @@ export class CodexCliRuntimeAdapter implements AgentRuntimeAdapter {
     } else if (native.kind === 'run.error') {
       event = this.event(request, { type: 'run.error', code: native.code || 'codex_runtime_failed', message: native.text || 'Codex CLI failed' });
     } else {
-      event = this.event(request, { type: 'progress', phase: native.phase || native.kind });
+      event = this.event(request, { type: 'activity', phase: native.phase || native.kind, detail: native.text });
     }
     this.events.emit(event);
     if (event.type === 'run.completed' || event.type === 'run.cancelled' || event.type === 'run.error') {

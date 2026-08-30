@@ -31,6 +31,8 @@ const request: AgentRunRequest = {
   runId: 'run-1',
   projectId: 'project-1',
   prompt: 'create title text',
+  selectedObjectIds: [],
+  runtime: 'api',
 };
 
 describe('AgentRuntimeBroker', () => {
