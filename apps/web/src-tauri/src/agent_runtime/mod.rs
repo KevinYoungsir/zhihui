@@ -229,7 +229,7 @@ pub fn start_codex_run(
     .env("RECOMBYN_RUN_ID", &request.run_id)
     .stdin(Stdio::piped())
     .stdout(Stdio::piped())
-    .stderr(Stdio::null());
+    .stderr(Stdio::piped());
   configure_process_group(&mut command);
   let mut child = command.spawn().map_err(|error| format!("Failed to start Codex CLI: {error}"))?;
   let terminator = Arc::new(ProcessTreeTerminator::attach(&child).map_err(|error| {
@@ -266,6 +266,17 @@ pub fn start_codex_run(
   } else {
     None
   };
+  // Drain stderr so a noisy child cannot deadlock on a full pipe. Count a
+  // bounded amount for diagnostics, but never persist or emit raw stderr.
+  let stderr_thread = child.stderr.take().map(|stderr| {
+    thread::spawn(move || {
+      let mut captured_bytes = 0usize;
+      for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+        captured_bytes = captured_bytes.saturating_add(line.len()).min(16 * 1024);
+      }
+      captured_bytes
+    })
+  });
 
   let runs = state.runs.clone();
   let watchdog_runs = runs.clone();
@@ -285,6 +296,9 @@ pub fn start_codex_run(
     let status = child.wait();
     if let Some(stdout_thread) = stdout_thread {
       let _ = stdout_thread.join();
+    }
+    if let Some(stderr_thread) = stderr_thread {
+      let _captured_stderr_bytes = stderr_thread.join().unwrap_or(0);
     }
     let termination = termination_reason.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
     if termination.as_deref() == Some("process_timeout") {
