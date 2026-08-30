@@ -27,6 +27,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": {
+      "../../scripts/mcp/recombyn_canvas_stdio.mjs": "scripts/mcp/recombyn_canvas_stdio.mjs"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -36,4 +39,3 @@
     ]
   }
 }
-

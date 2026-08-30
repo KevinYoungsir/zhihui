@@ -7,6 +7,22 @@ on:
   workflow_dispatch:
 
 jobs:
+  runtime-tests:
+    name: Agent runtime tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Test desktop Agent runtime
+        run: cargo test --manifest-path apps/web/src-tauri/Cargo.toml --lib
+
   windows:
     runs-on: [self-hosted, Windows, ci]
     timeout-minutes: 120

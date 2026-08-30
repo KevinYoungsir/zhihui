@@ -1,6 +1,12 @@
+mod agent_runtime;
+
+use agent_runtime::AgentProcessState;
+use tauri::Manager;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
+    .manage(AgentProcessState::default())
     .plugin(tauri_plugin_opener::init())
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_fs::init())
@@ -14,7 +20,18 @@ pub fn run() {
       }
       Ok(())
     })
+    .invoke_handler(tauri::generate_handler![
+      agent_runtime::discover_codex,
+      agent_runtime::start_codex_run,
+      agent_runtime::cancel_codex_run,
+    ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application")
-    .run(|_app_handle, _event| {});
+    .run(|app_handle, event| {
+      if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
+        if let Some(state) = app_handle.try_state::<AgentProcessState>() {
+          state.terminate_all();
+        }
+      }
+    });
 }
