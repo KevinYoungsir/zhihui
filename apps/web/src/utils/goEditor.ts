@@ -3,6 +3,7 @@ import { useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { store } from '@/store';
 import { buildLoginUrl } from '@/utils/authReturnTo';
+import { hasLocalCanvasAccess } from '@/utils/localCanvasMode';
 import {
   openEditorWindowWithBoot,
   saveHomeAgentBoot,
@@ -64,7 +65,7 @@ export function useGoEditor() {
     (opts?: GoEditorOpts) => {
       const path = buildEditorIntentPath(opts);
       // Guests: never window.open — that jumps to a new tab instead of the in-page login dialog.
-      if (!user) {
+      if (!user && !hasLocalCanvasAccess()) {
         navigate(buildLoginUrl(path));
         return;
       }

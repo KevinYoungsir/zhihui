@@ -18,6 +18,7 @@ import {
   type HomeNavKey,
 } from '@/components/layout/homeNav';
 import { getToken } from '@/utils/token';
+import { hasLocalCanvasAccess } from '@/utils/localCanvasMode';
 
 type Props = {
   setNav: (id: string) => void;
@@ -31,7 +32,7 @@ function HomeTopBar({ setNav, nav = 'home' }: Props) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const userId = useSelector((state: any) => state.auth?.user?.id) as string | undefined;
-  const authed = Boolean(userId && getToken());
+  const authed = Boolean(userId && (getToken() || hasLocalCanvasAccess()));
 
   const goNav = (id: HomeNavKey) => {
     runHomeGoNav(id, {

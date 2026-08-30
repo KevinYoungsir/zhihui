@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     # App metadata
     API_V1_STR: str = "/api/v1"
     PROJECT_NAME: str = "Recombyn API"
+    # Explicit local-only auth bypass used by the one-click canvas launcher.
+    # Keep false in every deployed environment.
+    local_canvas_mode: bool = False
     # Env may use either DATABASE_URL or database_url (pydantic-settings is case-insensitive).
     # Prefer documenting DATABASE_URL in deploy; attribute remains database_url below.
 

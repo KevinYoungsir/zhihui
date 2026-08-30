@@ -27,6 +27,7 @@ function pick(env: Record<string, string>, ...keys: string[]) {
 export default defineConfig(({ mode }) => {
   const env = { ...loadEnv(mode, repoRoot, ''), ...loadEnv(mode, root, '') };
   const devApiPort = resolveDevApiPort(env);
+  const devOpenPath = pick(env, 'VITE_DEV_OPEN_PATH');
   const apiBaseUrl = pick(env, 'VITE_API_BASE_URL').replace(/\/$/, '');
   const apiProxyTarget =
     apiBaseUrl && /^https?:\/\//i.test(apiBaseUrl) && !/localhost|127\.0\.0\.1/i.test(apiBaseUrl)
@@ -87,7 +88,7 @@ export default defineConfig(({ mode }) => {
       host: true,
       port: 3000,
       strictPort: true,
-      open: !isTauri,
+      open: isTauri ? false : devOpenPath || true,
       fs: { allow: [root, repoRoot] },
       watch: { ignored: ['**/src-tauri/**'] },
       proxy: {

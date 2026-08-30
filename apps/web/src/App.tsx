@@ -1,11 +1,12 @@
 import { useEffect, memo } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { apiQuery, queryClient } from '@/service/client';
 import { clearProjectsListCache } from '@/service/projects';
 import { clearWalletCache, WALLET_ME_QUERY_OPTS } from '@/service/wallet';
 import AppRouter from '@/router';
-import { logout, setSession, clearSessionCaches } from '@/store/modules/auth';
+import { logout, setSession, setUser, clearSessionCaches } from '@/store/modules/auth';
 import { clearProjectsLibrary } from '@/store/modules/editor';
+import { isLocalCanvasMode, LOCAL_CANVAS_USER } from '@/utils/localCanvasMode';
 import { getToken } from '@/utils/token';
 
 function applySessionUser(
@@ -47,8 +48,16 @@ async function runQuietly(task: () => Promise<void>): Promise<void> {
 
 function App() {
   const dispatch = useDispatch();
+  const userId = useSelector((state: any) => state.auth?.user?.id as string | undefined);
 
   useEffect(() => {
+    if (!isLocalCanvasMode() || userId === LOCAL_CANVAS_USER.id) return;
+    dispatch(setUser(LOCAL_CANVAS_USER));
+  }, [dispatch, userId]);
+
+  useEffect(() => {
+    if (isLocalCanvasMode()) return undefined;
+
     const onUnauthorized = () => {
       dispatch(logout());
       dispatch(clearProjectsLibrary());
@@ -61,6 +70,8 @@ function App() {
   }, [dispatch]);
 
   useEffect(() => {
+    if (isLocalCanvasMode()) return undefined;
+
     let cancelled = false;
 
     async function prefetchWallet() {

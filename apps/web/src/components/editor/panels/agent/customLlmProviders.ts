@@ -3,6 +3,7 @@
 import type { LlmModel, ModelReferenceType } from '@/service/chat';
 import { apiClient, apiQuery, queryClient } from '@/service/client';
 import { getToken } from '@/utils/token';
+import { request } from '@/utils/request';
 
 type ByokProviderDto = {
   id: string;
@@ -18,6 +19,37 @@ type ByokProviderDto = {
 };
 
 type ByokListResponse = { items?: ByokProviderDto[] };
+
+export type ProviderProtocol = 'auto' | 'openai' | 'gemini' | 'volcengine' | 'runninghub';
+
+export type DiscoveredProviderModel = {
+  id: string;
+  label: string;
+  kind: Exclude<CustomModelKind, 'vision' | 'platform'> | 'audio';
+  ownedBy?: string;
+};
+
+export type ProviderDiscoveryResponse = {
+  protocol: Exclude<ProviderProtocol, 'auto'>;
+  total: number;
+  models: DiscoveredProviderModel[];
+  categories: Record<'text' | 'image' | 'video' | 'audio', DiscoveredProviderModel[]>;
+};
+
+/** Credentials are sent only to our API proxy and are never persisted by discovery. */
+export async function discoverUpstreamModels(input: {
+  providerId?: string;
+  baseUrl?: string;
+  apiKey?: string;
+  protocol?: ProviderProtocol;
+}): Promise<ProviderDiscoveryResponse> {
+  return request<ProviderDiscoveryResponse>({
+    url: '/api/v1/me/byok/discover-models',
+    method: 'post',
+    data: input,
+    timeout: 35_000,
+  });
+}
 
 function invalidateByokListCache() {
   queryClient.invalidateQueries({ queryKey: apiQuery.meMeByokList.key() });
@@ -509,7 +541,7 @@ export function customProvidersAsModels(
       const isVision = modelKind === 'vision';
       return {
         id: `${CUSTOM_MODEL_ID_PREFIX}${p.id}`,
-        label: p.name || 'Custom',
+        label: `API · ${p.name || 'Custom'}`,
         provider: 'custom',
         kind: llmKindFor(modelKind),
         referenceTypes: referenceTypesFor(modelKind),

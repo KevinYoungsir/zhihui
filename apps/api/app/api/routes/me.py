@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import APIRouter
+import httpx
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.api.deps import CurrentUser
@@ -14,7 +15,9 @@ from app.services.i18n.locale import LocaleDep
 from app.services.me import likes as likes_store
 from app.services.security import (
     delete_byok_provider,
+    get_byok_provider_row,
     list_byok_providers,
+    redact_secrets,
     upsert_byok_provider,
 )
 
@@ -33,6 +36,15 @@ class ByokProviderIn(BaseModel):
     apiModel: str = ""
     modelKind: str = "text"
     apiKey: str | None = None
+
+
+class ByokDiscoverModelsIn(BaseModel):
+    """Transient credentials or a saved provider reference for model discovery."""
+
+    providerId: str | None = None
+    baseUrl: str = ""
+    apiKey: str | None = None
+    protocol: Literal["auto", "openai", "gemini", "volcengine", "runninghub"] = "auto"
 
 
 @router.get("/liked")
@@ -106,6 +118,47 @@ def me_byok_upsert(
     except ValueError as err:
         raise value_error_http(err, locale) from err
     return {"item": item}
+
+
+@router.post("/byok/discover-models")
+async def me_byok_discover_models(
+    current_user: CurrentUser,
+    body: ByokDiscoverModelsIn,
+) -> dict[str, Any]:
+    """Read and classify an upstream model catalog without persisting secrets."""
+    base_url = body.baseUrl.strip().rstrip("/")
+    api_key = str(body.apiKey or "").strip()
+    if body.providerId:
+        row = get_byok_provider_row(current_user.id, body.providerId)
+        if not row:
+            raise HTTPException(status_code=404, detail="BYOK provider not found")
+        base_url = base_url or str(row.get("baseUrl") or "").strip().rstrip("/")
+        api_key = api_key or str(row.get("apiKey") or "").strip()
+
+    from app.services.llm.provider_discovery import discover_upstream_models
+
+    try:
+        return await discover_upstream_models(
+            base_url=base_url,
+            api_key=api_key,
+            protocol=body.protocol,
+        )
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=redact_secrets(str(err))) from err
+    except httpx.HTTPStatusError as err:
+        status_code = err.response.status_code
+        if status_code in (401, 403):
+            detail = "Upstream API rejected the credential"
+        elif status_code == 404:
+            detail = "Upstream model endpoint was not found; check base URL and protocol"
+        else:
+            detail = f"Upstream model request failed ({status_code})"
+        raise HTTPException(status_code=502, detail=detail) from err
+    except httpx.RequestError as err:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not reach upstream model API: {redact_secrets(str(err))}",
+        ) from err
 
 
 @router.delete("/byok/providers/{provider_id}", response_model=OkOut)

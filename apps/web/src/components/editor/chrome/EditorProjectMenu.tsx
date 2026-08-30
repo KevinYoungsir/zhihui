@@ -15,6 +15,7 @@ import {
 } from '@floating-ui/react';
 import { UserAvatar } from '@/components/layout/UserAccountPanel';
 import { getToken } from '@/utils/token';
+import { hasLocalCanvasAccess } from '@/utils/localCanvasMode';
 import { buildLoginUrl } from '@/utils/authReturnTo';
 import { cn } from '@/utils/classnames';
 
@@ -49,7 +50,7 @@ function EditorProjectMenu({
   const { t } = useTranslation();
   const navigate = useNavigate();
   const user = useSelector((state: any) => state.auth?.user);
-  const authed = Boolean(user && getToken());
+  const authed = Boolean(user && (getToken() || hasLocalCanvasAccess()));
   const [open, setOpen] = useState(false);
   const jsonInputRef = useRef<HTMLInputElement>(null);
   const titlebar = variant === 'titlebar';

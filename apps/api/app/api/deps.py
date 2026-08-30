@@ -29,11 +29,26 @@ def get_db() -> Generator[Session, None, None]:
 
 
 SessionDep = Annotated[Session, Depends(get_db)]
-TokenDep = Annotated[str, Depends(reusable_oauth2)]
 OptionalTokenDep = Annotated[str | None, Depends(optional_oauth2)]
+TokenDep = Annotated[str, Depends(reusable_oauth2)]
 
 
-def get_current_user(session: SessionDep, token: TokenDep) -> SessionUser:
+def _local_canvas_user() -> SessionUser:
+    return SessionUser(
+        id="local-canvas-developer",
+        email="local-canvas@localhost",
+        name="本地画布开发者",
+        avatar=None,
+        provider="local",
+        bio="Local development mode",
+        role="admin",
+        status="active",
+    )
+
+
+def get_current_user(session: SessionDep, token: OptionalTokenDep) -> SessionUser:
+    if bool(getattr(settings, "local_canvas_mode", False)):
+        return _local_canvas_user()
     user = get_session(token, db=session)
     if not user:
         # 401 (not 403): axios / App treat this as session death and clear local auth.
@@ -52,6 +67,8 @@ def get_current_user_optional(
     session: SessionDep,
     token: OptionalTokenDep,
 ) -> SessionUser | None:
+    if bool(getattr(settings, "local_canvas_mode", False)):
+        return _local_canvas_user()
     if not token:
         return None
     return get_session(token, db=session)
@@ -253,4 +270,3 @@ def require_org_permission(permission: Permission):
     # Bind path/query org_id via explicit signature name expected by FastAPI.
     _dep.__name__ = f"require_org_{permission.replace(':', '_')}"
     return _dep
-

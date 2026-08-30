@@ -78,6 +78,7 @@ apps/intelligence/.ocr-install.log
 
 # Local API startup scratch logs
 apps/api/startup*.log
+.runtime/
 
 # typescript incremental cache (looks like garbled JSON — not source)
 *.tsbuildinfo

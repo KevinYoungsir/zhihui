@@ -20,10 +20,12 @@ import { getToken } from '@/utils/token';
 import { readFileAsDataUrl } from '@/utils/uploadImage';
 import { useWalletSnapshot } from '@/service/wallet';
 import { planAllowsCustomModels } from '@/utils/wallet';
+import { isLocalCanvasMode } from '@/utils/localCanvasMode';
 import {
   createCustomLlmProviderId,
   createPlatformModelId,
   customProvidersAsModels,
+  discoverUpstreamModels,
   hydrateCustomLlmProviders,
   isPlatformByokId,
   isPlatformModelId,
@@ -32,6 +34,9 @@ import {
   removeCustomLlmProvider,
   type CustomLlmProvider,
   type CustomModelKind,
+  type DiscoveredProviderModel,
+  type ProviderDiscoveryResponse,
+  type ProviderProtocol,
 } from '../customLlmProviders';
 import { CUSTOM_MODEL_ICON_OPTIONS, ModelBrandIcon } from './ModelPickerPanel';
 import {
@@ -281,7 +286,7 @@ function AgentModelsPanel({
 }: Props): ReactNode {
   const { t } = useTranslation();
   const { planId } = useWalletSnapshot();
-  const canCustom = planAllowsCustomModels(planId);
+  const canCustom = isLocalCanvasMode() || planAllowsCustomModels(planId);
   const [providers, setProviders] = useState<CustomLlmProvider[]>([]);
   const [platforms, setPlatforms] = useState<ByokPlatform[]>([]);
   /** Shared with RoutePrefsEditor — one GET /chat/models for the whole Agent tab. */
@@ -294,6 +299,9 @@ function AgentModelsPanel({
   const [baseUrl, setBaseUrl] = useState('');
   const [apiModel, setApiModel] = useState('');
   const [modelKind, setModelKind] = useState<CustomModelKind>('text');
+  const [providerProtocol, setProviderProtocol] = useState<ProviderProtocol>('auto');
+  const [discovery, setDiscovery] = useState<ProviderDiscoveryResponse | null>(null);
+  const [discoveryKind, setDiscoveryKind] = useState<'image' | 'video' | 'text'>('image');
   const [error, setError] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Optional extra model id while adding a platform key (also reused for銆屾坊鍔犳ā鍨嬨€峯n saved rows).
@@ -338,6 +346,9 @@ function AgentModelsPanel({
   });
   const removeProviderMutation = useMutation({
     mutationFn: (id: string) => removeCustomLlmProvider(id),
+  });
+  const discoverModelsMutation = useMutation({
+    mutationFn: discoverUpstreamModels,
   });
 
   useEffect(() => {
@@ -402,6 +413,7 @@ function AgentModelsPanel({
     setAddModelIconKey('');
     setAddModelIconUrl('');
     setAddModelError('');
+    setDiscovery(null);
     if (id === MANUAL_PROVIDER_ID || !id) {
       setModelKind('text');
       setApiModel('');
@@ -426,6 +438,9 @@ function AgentModelsPanel({
     setBaseUrl('');
     setApiModel('');
     setModelKind('text');
+    setProviderProtocol('auto');
+    setDiscovery(null);
+    setDiscoveryKind('image');
     setAddModelApiId('');
     setAddModelName('');
     setAddModelKind('text');
@@ -443,6 +458,54 @@ function AgentModelsPanel({
     })),
     { value: MANUAL_PROVIDER_ID, label: t('agent.providerPresetManual') },
   ];
+
+  const onDiscoverModels = async () => {
+    const url = baseUrl.trim().replace(/\/+$/, '');
+    const key = apiKey.trim();
+    if (!url || !/^https?:\/\//i.test(url)) {
+      setError(t('agent.providerBaseUrlInvalid'));
+      return;
+    }
+    if (!key) {
+      setError(t('agent.providerApiKeyRequired', { defaultValue: 'API key is required' }));
+      return;
+    }
+    setError('');
+    setDiscovery(null);
+    try {
+      const result = await discoverModelsMutation.mutateAsync({
+        baseUrl: url,
+        apiKey: key,
+        protocol: providerProtocol,
+      });
+      setDiscovery(result);
+      const nextKind = result.categories.image.length
+        ? 'image'
+        : result.categories.video.length
+          ? 'video'
+          : 'text';
+      setDiscoveryKind(nextKind);
+      if (!result.total) {
+        setError(
+          t('agent.providerDiscoverEmpty', {
+            defaultValue: '上游接口已连接，但没有返回可用模型。',
+          })
+        );
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : t('agent.providerDiscoverFailed', { defaultValue: '读取上游模型失败' })
+      );
+    }
+  };
+
+  const onPickDiscoveredModel = (model: DiscoveredProviderModel) => {
+    setApiModel(model.id);
+    setModelKind(model.kind === 'image' || model.kind === 'video' ? model.kind : 'text');
+    if (!name.trim()) setName(model.label || model.id);
+  };
 
   const onSaveProvider = () => {
     if (!canCustom) {
@@ -766,6 +829,42 @@ function AgentModelsPanel({
                   <>
                     <label className="mb-4 block">
                       <span className="text-[13px] font-medium text-[var(--ink)]">
+                        {t('agent.providerAccessMode', { defaultValue: '接入模式' })}
+                      </span>
+                      <div className="mt-1.5 rounded-lg bg-[var(--account-main)] p-1 ring-1 ring-[var(--line)]">
+                        <button
+                          type="button"
+                          className="h-8 w-full rounded-md bg-[var(--account-card)] text-[13px] font-medium text-[var(--ink)] shadow-sm"
+                        >
+                          {t('agent.providerApiMode', { defaultValue: '上游 API 模式' })}
+                        </button>
+                      </div>
+                    </label>
+
+                    <label className="mb-4 block">
+                      <span className="text-[13px] font-medium text-[var(--ink)]">
+                        {t('agent.providerProtocol', { defaultValue: 'API 协议' })}
+                      </span>
+                      <Select
+                        size="large"
+                        className={selectFieldClass}
+                        value={providerProtocol}
+                        options={[
+                          { value: 'auto', label: t('agent.providerProtocolAuto', { defaultValue: '自动识别' }) },
+                          { value: 'openai', label: 'OpenAI Compatible' },
+                          { value: 'gemini', label: 'Google Gemini' },
+                          { value: 'volcengine', label: 'Volcengine Ark' },
+                          { value: 'runninghub', label: 'RunningHub' },
+                        ]}
+                        onChange={(v) => {
+                          setProviderProtocol(String(v) as ProviderProtocol);
+                          setDiscovery(null);
+                        }}
+                      />
+                    </label>
+
+                    <label className="mb-4 block">
+                      <span className="text-[13px] font-medium text-[var(--ink)]">
                         {t('agent.providerModelKind')}
                         <span className="text-red-500"> *</span>
                       </span>
@@ -777,6 +876,7 @@ function AgentModelsPanel({
                           { value: 'text', label: t('agent.providerModelKindText') },
                           { value: 'vision', label: t('agent.providerModelKindVision') },
                           { value: 'image', label: t('agent.providerModelKindImage') },
+                          { value: 'video', label: t('agent.providerModelKindVideo') },
                         ]}
                         onChange={(v) => setModelKind(parseCustomModelKind(String(v)))}
                       />
@@ -832,6 +932,102 @@ function AgentModelsPanel({
                     required={isManualProvider}
                   />
                 </label>
+
+                {isManualProvider ? (
+                  <div className="mb-4 rounded-xl bg-[var(--account-main)] p-3 ring-1 ring-[var(--line)]">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[13px] font-medium text-[var(--ink)]">
+                          {t('agent.providerDiscoverTitle', { defaultValue: '读取上游模型' })}
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-[var(--muted)]">
+                          {t('agent.providerDiscoverHint', {
+                            defaultValue: '连接 /models，并自动分类为图片、视频和对话模型。',
+                          })}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={discoverModelsMutation.isPending}
+                        className="shrink-0 rounded-lg bg-[var(--ink)] px-3 py-2 text-[12px] font-medium text-[var(--on-brand)] disabled:opacity-50"
+                        onClick={() => void onDiscoverModels()}
+                      >
+                        {discoverModelsMutation.isPending
+                          ? t('agent.providerDiscovering', { defaultValue: '读取中…' })
+                          : t('agent.providerDiscover', { defaultValue: '读取模型' })}
+                      </button>
+                    </div>
+
+                    {discovery?.total ? (
+                      <div className="mt-3">
+                        <div className="grid grid-cols-3 gap-1 rounded-lg bg-[var(--account-card)] p-1">
+                          {(['image', 'video', 'text'] as const).map((kind) => {
+                            const label =
+                              kind === 'image'
+                                ? t('agent.providerModelKindImage')
+                                : kind === 'video'
+                                  ? t('agent.providerModelKindVideo')
+                                  : t('agent.providerModelKindText');
+                            const count = discovery.categories[kind].length;
+                            return (
+                              <button
+                                key={kind}
+                                type="button"
+                                className={cn(
+                                  'h-8 rounded-md text-[12px] transition',
+                                  discoveryKind === kind
+                                    ? 'bg-[var(--ink)] text-[var(--on-brand)]'
+                                    : 'text-[var(--muted)] hover:text-[var(--ink)]'
+                                )}
+                                onClick={() => setDiscoveryKind(kind)}
+                              >
+                                {label} ({count})
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="mt-2 max-h-48 space-y-1 overflow-y-auto pr-1">
+                          {discovery.categories[discoveryKind].map((model) => {
+                            const selected = apiModel === model.id;
+                            return (
+                              <button
+                                key={model.id}
+                                type="button"
+                                className={cn(
+                                  'flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-[12px] ring-1 transition',
+                                  selected
+                                    ? 'bg-[var(--accent-soft)] text-[var(--ink)] ring-[var(--ink)]/20'
+                                    : 'bg-[var(--account-card)] text-[var(--muted)] ring-[var(--line)] hover:text-[var(--ink)]'
+                                )}
+                                onClick={() => onPickDiscoveredModel(model)}
+                              >
+                                <span className="min-w-0">
+                                  <span className="block truncate font-medium">{model.label}</span>
+                                  <span className="block truncate text-[10px] opacity-70">{model.id}</span>
+                                </span>
+                                <span className="shrink-0">{selected ? '✓' : ''}</span>
+                              </button>
+                            );
+                          })}
+                          {!discovery.categories[discoveryKind].length ? (
+                            <p className="px-2 py-3 text-center text-[11px] text-[var(--muted)]">
+                              {t('agent.providerDiscoverCategoryEmpty', {
+                                defaultValue: '该分类没有检测到模型',
+                              })}
+                            </p>
+                          ) : null}
+                        </div>
+                        <p className="mt-2 text-[10px] text-[var(--muted)]">
+                          {t('agent.providerDiscoverSummary', {
+                            defaultValue: '已读取 {{count}} 个模型 · {{protocol}}',
+                            count: discovery.total,
+                            protocol: discovery.protocol,
+                          })}
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
 
                 <label className="mb-4 block">
                   <span className="text-[13px] font-medium text-[var(--ink)]">

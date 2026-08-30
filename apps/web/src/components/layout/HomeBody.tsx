@@ -44,6 +44,7 @@ import {
 } from '@/service/projects';
 import { normalizeProjectThumbnailUrls, collageOrSingleThumb, projectThumbnailUrlsFromApi } from '@/utils/projectThumb';
 import { getToken } from '@/utils/token';
+import { hasLocalCanvasAccess } from '@/utils/localCanvasMode';
 import { buildLoginUrl } from '@/utils/authReturnTo';
 import { useGoEditor } from '@/utils/goEditor';
 import { useBillingEnabled, useWalletSnapshot } from '@/service/wallet';
@@ -534,7 +535,7 @@ function RailSidebarFooter({ expanded }: { expanded: boolean }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const user = useSelector((state: any) => state.auth?.user);
-  const authed = Boolean(user && getToken());
+  const authed = Boolean(user && (getToken() || hasLocalCanvasAccess()));
   const { credits, planId } = useWalletSnapshot();
   const billingEnabled = useBillingEnabled();
   const hideBillingUi = !billingEnabled;
@@ -643,7 +644,7 @@ function HomeSidebar({
   const [expanded, setExpanded] = useHomeRailExpanded();
   const railW = homeRailWidthPx(expanded);
   const userId = useSelector((state: any) => state.auth?.user?.id) as string | undefined;
-  const authed = Boolean(userId && getToken());
+  const authed = Boolean(userId && (getToken() || hasLocalCanvasAccess()));
 
   const projectsList = useHomeProjectsList(authed);
   const sidebarProjectsLoading = authed && !projectsList.ready;
@@ -752,7 +753,7 @@ function HomeTemplateList({
   const navigate = useNavigate();
   const userId = useSelector((state: any) => state.auth?.user?.id) as string | undefined;
   // Token is in localStorage only — Redux has no auth.token field.
-  const authed = Boolean(userId && getToken());
+  const authed = Boolean(userId && (getToken() || hasLocalCanvasAccess()));
   const [skillsMountKey, setSkillsMountKey] = useState(0);
   /** Filter "我的项目" by team org (empty = all accessible). */
   const [filterOrgId, setFilterOrgId] = useState('');

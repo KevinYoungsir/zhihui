@@ -3,6 +3,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { Navigate, Outlet, useLocation, useSearchParams } from 'react-router-dom';
 import { logout, clearSessionCaches } from '@/store/modules/auth';
 import { buildLoginUrl, readReturnToParam } from '@/utils/authReturnTo';
+import { isLocalCanvasMode } from '@/utils/localCanvasMode';
 import { getToken } from '@/utils/token';
 
 /** Protects editor (and any other auth-only routes). Guests → login?from=… */
@@ -10,6 +11,8 @@ function RequireAuth() {
   const user = useSelector((state: any) => state.auth.user);
   const location = useLocation();
   const hasToken = Boolean(getToken());
+
+  if (isLocalCanvasMode()) return <Outlet />;
 
   if (!user || !hasToken) {
     return (
@@ -32,11 +35,16 @@ function GuestOnly() {
 
   // Stale user blob without a session token (e.g. raced getMe after logout).
   useEffect(() => {
+    if (isLocalCanvasMode()) return;
     if (user && !hasToken) {
       dispatch(logout());
       clearSessionCaches();
     }
   }, [user, hasToken, dispatch]);
+
+  if (isLocalCanvasMode()) {
+    return <Navigate to={readReturnToParam(params)} replace />;
+  }
 
   if (user && hasToken) {
     return <Navigate to={readReturnToParam(params)} replace />;
