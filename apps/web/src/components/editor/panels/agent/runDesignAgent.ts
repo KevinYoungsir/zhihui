@@ -56,6 +56,11 @@ import {
   setAiOperationState,
 } from '@/store/modules/editor';
 import { resolveToolOpsInterOpDelayMs } from '@/components/editor/panels/agent/toolOpsApplyPolicy';
+import {
+  filterAllowedToolOps,
+  type AgentToolOp,
+} from '@/components/editor/panels/agent/toolOpsContract';
+import { canvasToolGateway } from '@/service/agentRuntime/CanvasToolGateway';
 import { store } from '@/store';
 
 export type ToolOpResult = {
@@ -1853,6 +1858,8 @@ export type PipelineProgress = {
 
 export type RunDesignAgentParams = {
   userMessage: string;
+  /** Broker-owned id used by the shared Canvas Tool Gateway. */
+  runtimeRunId?: string | null;
   runMode?: DesignRunMode;
   /** Composer Agent / Ask — Ask proposes before paint. */
   interactionMode?: 'agent' | 'ask' | null;
@@ -2185,6 +2192,12 @@ function refreshActivityProcessPill(opts: {
 
 export async function runDesignAgent(params: RunDesignAgentParams): Promise<void> {
   const runMode = params.runMode || 'agent';
+  const gatewayRunId =
+    String(params.runtimeRunId || '').trim() ||
+    `api-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const gatewayProjectId = String(params.projectId || params.canvasId || '__none__');
+  let gatewayOperationSeq = 0;
+  canvasToolGateway.acquire(gatewayRunId, gatewayProjectId);
   // Do NOT seed old-frame id/nodes until backend confirms edit_in_place.
   // Seeding early causes blank/create to resize the prior artboard instead of spawning a new one.
   const live: LiveDrawState = {
@@ -2901,31 +2914,45 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
         const skipHistoryPush = aiQueueShouldSkipHistory(aiQueue, chunkTxId);
         ensureAiMutationLock();
         try {
-          const applied = await applyAgentToolOps({
-            ops: paintOps,
-            dispatch: params.dispatch,
-            getDocument: params.getDocument,
-            frameId,
-            signal: params.signal,
-            // Create has no prior nodes — don't rewrite create_shape against old bg.
-            sceneNodes: editInPlace ? params.sceneNodes : null,
-            userImages: params.images,
-            appliedOpIds: appliedOpIdsRef.current,
-            canvasUi: params.canvasUi,
-            skipHistoryPush,
-            source: 'ai',
-            transactionId: chunkTxId || undefined,
-            baseRevision: aiQueue.baseRevision,
-            currentRevision: sceneRevisionNow(),
-            onProgress: (info) => {
-              params.onEvent({
-                type: 'drawing',
-                active: true,
-                done: info.done,
-                total: info.total,
-              });
-            },
+          gatewayOperationSeq += 1;
+          const canonicalPaintOps = filterAllowedToolOps(paintOps) as AgentToolOp[];
+          const operationId =
+            chunkTxId ||
+            canonicalPaintOps.map((op) => String(op.op_id || '')).filter(Boolean).join(':') ||
+            `chunk-${gatewayOperationSeq}`;
+          const applied = await canvasToolGateway.apply({
+            runId: gatewayRunId,
+            projectId: gatewayProjectId,
+            operationId,
+            ops: canonicalPaintOps,
+            apply: (ops) =>
+              applyAgentToolOps({
+                ops,
+                dispatch: params.dispatch,
+                getDocument: params.getDocument,
+                frameId,
+                signal: params.signal,
+                // Create has no prior nodes — don't rewrite create_shape against old bg.
+                sceneNodes: editInPlace ? params.sceneNodes : null,
+                userImages: params.images,
+                appliedOpIds: appliedOpIdsRef.current,
+                canvasUi: params.canvasUi,
+                skipHistoryPush,
+                source: 'ai',
+                transactionId: chunkTxId || undefined,
+                baseRevision: aiQueue.baseRevision,
+                currentRevision: sceneRevisionNow(),
+                onProgress: (info) => {
+                  params.onEvent({
+                    type: 'drawing',
+                    active: true,
+                    done: info.done,
+                    total: info.total,
+                  });
+                },
+              }),
           });
+          if (!applied) return;
           // The host can create the target artboard before its matching
           // create_frame command arrives. Record that as an explicit receipt
           // instead of leaving the server to treat the operation as missing.
@@ -3855,5 +3882,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
       code: 'internal_error',
       message: message || undefined,
     });
+  } finally {
+    canvasToolGateway.release(gatewayRunId, gatewayProjectId);
   }
 }
