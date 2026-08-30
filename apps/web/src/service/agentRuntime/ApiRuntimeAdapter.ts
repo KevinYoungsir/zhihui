@@ -25,7 +25,10 @@ export type ApiRuntimeExecutor = (
 export class ApiRuntimeAdapter implements AgentRuntimeAdapter {
   readonly mode = 'api' as const;
   private readonly events = new AgentRunEventBus();
-  private readonly controllers = new Map<string, AbortController>();
+  private readonly runs = new Map<
+    string,
+    { controller: AbortController; done: Promise<void>; settle: () => void }
+  >();
 
   constructor(private readonly execute: ApiRuntimeExecutor) {}
 
@@ -38,11 +41,13 @@ export class ApiRuntimeAdapter implements AgentRuntimeAdapter {
   }
 
   async startRun(request: AgentRunRequest): Promise<void> {
-    if (this.controllers.has(request.runId)) {
+    if (this.runs.has(request.runId)) {
       throw new Error(`API Agent run already active: ${request.runId}`);
     }
     const controller = new AbortController();
-    this.controllers.set(request.runId, controller);
+    let settle = () => undefined;
+    const done = new Promise<void>((resolve) => { settle = resolve; });
+    this.runs.set(request.runId, { controller, done, settle });
     let terminal = false;
     const emit = (event: AgentRunEvent) => {
       if (
@@ -73,12 +78,17 @@ export class ApiRuntimeAdapter implements AgentRuntimeAdapter {
         );
       }
     } finally {
-      this.controllers.delete(request.runId);
+      const active = this.runs.get(request.runId);
+      this.runs.delete(request.runId);
+      active?.settle();
     }
   }
 
   async cancelRun(runId: string): Promise<void> {
-    this.controllers.get(runId)?.abort();
+    const active = this.runs.get(runId);
+    if (!active) return;
+    active.controller.abort();
+    await active.done;
   }
 
   private event<T extends Omit<AgentRunEvent, 'runId' | 'projectId' | 'runtime' | 'timestamp'>>(

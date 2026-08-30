@@ -16,6 +16,7 @@ import {
   contextsFromBoot,
 } from '@/utils/homeAgentBoot';
 import { withReturnTo } from '@/utils/authReturnTo';
+import { isDesktopShell } from '@/utils/apiBase';
 import {
   buildEditorProjectPath,
   clearEditorProjectNavigationLock,
@@ -1675,7 +1676,7 @@ function EditorPage() {
       <ProjectRevisionConflictDialog />
       <McpCanvasBridge
         projectId={currentId}
-        enabled={import.meta.env.VITE_MCP_CANVAS_ENABLED === 'true'}
+        enabled={isDesktopShell() || import.meta.env.VITE_MCP_CANVAS_ENABLED === 'true'}
       />
       <div
         className={cn(

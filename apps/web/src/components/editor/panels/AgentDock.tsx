@@ -104,7 +104,6 @@ import {
 } from '@/components/editor/panels/agent/composer/flyToChat';
 import { useChatSessions } from '@/components/editor/panels/agent/useChatSessions';
 import {
-  runDesignAgent,
   resolveDesignTargetFrame,
   nodeIdsInsideFrame,
   frameIdContainingNode,
@@ -113,6 +112,7 @@ import {
   buildSpatialSummary,
   type AgentStepEvent,
 } from '@/components/editor/panels/agent/runDesignAgent';
+import { AgentRuntimeController } from '@/service/agentRuntime';
 import {
   canAttachNodeToChat
 } from '@/components/rcb/scene/document/mediaLifecycle';
@@ -881,6 +881,8 @@ function AgentDock({
   const listRef = useRef<VirtualListHandle | null>(null);
   const inputRef = useRef<AgentComposerHandle | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const runtimeControllerRef = useRef<AgentRuntimeController | null>(null);
+  if (!runtimeControllerRef.current) runtimeControllerRef.current = new AgentRuntimeController();
   const liveDesignTaskRef = useRef<string | null>(null);
   const pauseRequestedRef = useRef(false);
   /** True when the in-flight turn actually started design / canvas work. */
@@ -2071,7 +2073,7 @@ function AgentDock({
     });
 
     try {
-      await runDesignAgent({
+      await runtimeControllerRef.current.run({
         userMessage: userMsg.content || '',
         runMode: 'agent',
         interactionMode: 'agent',
@@ -2096,7 +2098,7 @@ function AgentDock({
           if (ev.type === 'paused' && ev.taskId) liveDesignTaskRef.current = ev.taskId;
           onDesignEvent(ev);
         },
-      });
+      }, { preference: { mode: 'api' } });
     } finally {
       dispatch(setAgentBusy(false));
       setSending(false);
@@ -2843,7 +2845,7 @@ function AgentDock({
       });
 
       // P0: lean scene + memory; skip canvas screenshot preview.
-      await runDesignAgent({
+      await runtimeControllerRef.current.run({
         userMessage: userMessageForApi,
         runMode: 'agent',
         interactionMode: 'agent',

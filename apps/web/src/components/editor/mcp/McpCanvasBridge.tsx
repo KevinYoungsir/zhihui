@@ -8,8 +8,10 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useDispatch } from 'react-redux';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import { applyAgentToolOps } from '@/components/editor/panels/agent/runDesignAgent';
+import { filterAllowedToolOps } from '@/components/editor/panels/agent/toolOpsContract';
 import { importDocument } from '@/store/modules/editor';
 import store, { type RootState } from '@/store';
+import { canvasToolGateway } from '@/service/agentRuntime/CanvasToolGateway';
 import {
   fetchProject,
 } from '@/service/projects';
@@ -85,14 +87,32 @@ export function McpCanvasBridge({
       for (const batch of batches) {
         const bid = String(batch.batchId || '').trim();
         const ops = Array.isArray(batch.ops) ? batch.ops : [];
-        if (ops.length) {
-          await applyAgentToolOps({
-            ops,
-            dispatch,
-            getDocument: editorAccessor.getDocument,
-            frameId: editorAccessor.getActiveFrameId(),
-            source: 'ai',
-          });
+        const runId = String(batch.runId || `mcp-${pid}`);
+        if (ops.length && bid) {
+          let acquired = false;
+          try {
+            canvasToolGateway.acquire(runId, pid);
+            acquired = true;
+            await canvasToolGateway.apply({
+              runId,
+              projectId: pid,
+              operationId: bid,
+              ops: filterAllowedToolOps(ops),
+              apply: (canonicalOps) =>
+                applyAgentToolOps({
+                  ops: canonicalOps,
+                  dispatch,
+                  getDocument: editorAccessor.getDocument,
+                  frameId: editorAccessor.getActiveFrameId(),
+                  source: 'ai',
+                }),
+            });
+          } catch {
+            // Preserve this and subsequent batches; the next poll retries after the owner releases.
+            break;
+          } finally {
+            if (acquired) canvasToolGateway.release(runId, pid);
+          }
         }
         if (bid) ackIds.push(bid);
       }

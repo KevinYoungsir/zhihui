@@ -22,6 +22,7 @@ export class CanvasToolGatewayError extends Error {
 export class CanvasToolGateway {
   private readonly owners = new Map<string, string>();
   private readonly appliedOperationIds = new Set<string>();
+  private readonly appliedOrder: string[] = [];
 
   acquire(runId: string, projectId: string): void {
     const owner = this.owners.get(projectId);
@@ -36,10 +37,6 @@ export class CanvasToolGateway {
 
   release(runId: string, projectId: string): void {
     if (this.owners.get(projectId) === runId) this.owners.delete(projectId);
-    const prefix = `${projectId}:${runId}:`;
-    for (const key of this.appliedOperationIds) {
-      if (key.startsWith(prefix)) this.appliedOperationIds.delete(key);
-    }
   }
 
   async apply<T>(request: CanvasToolGatewayApplyRequest<T>): Promise<T | null> {
@@ -56,6 +53,11 @@ export class CanvasToolGateway {
     if (this.appliedOperationIds.has(key)) return null;
     const result = await request.apply(request.ops);
     this.appliedOperationIds.add(key);
+    this.appliedOrder.push(key);
+    while (this.appliedOrder.length > 2048) {
+      const oldest = this.appliedOrder.shift();
+      if (oldest) this.appliedOperationIds.delete(oldest);
+    }
     return result;
   }
 }

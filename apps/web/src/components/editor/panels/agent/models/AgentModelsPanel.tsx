@@ -50,6 +50,7 @@ import {
   splitByokRouteModels,
   type SharedRouteCatalog,
 } from './AgentRoutePrefsEditor';
+import AgentRuntimeSettings from './AgentRuntimeSettings';
 
 type Props = {
   onProvidersChange?: () => void;
@@ -735,6 +736,7 @@ function AgentModelsPanel({
   return (
     <>
       <div className="space-y-5">
+        <AgentRuntimeSettings />
         <section className="rounded-xl bg-[var(--account-card)] p-6 ring-1 ring-[var(--line)]">
           <AgentRoutePrefsEditor sharedCatalog={sharedCatalog} />
         </section>
