@@ -1,4 +1,4 @@
-import { getApiBaseUrl } from '@/utils/apiBase';
+import { resolveApiUrl } from '@/utils/apiBase';
 import { getToken } from '@/utils/token';
 
 export type McpPendingBatch = {
@@ -7,9 +7,9 @@ export type McpPendingBatch = {
   ts?: number;
 };
 
-function mcpUrl(path: string): string {
-  const base = getApiBaseUrl().replace(/\/$/, '');
-  return `${base}/mcp/canvas${path}`;
+export function resolveMcpCanvasUrl(path: string): string {
+  const suffix = path.startsWith('/') ? path : `/${path}`;
+  return resolveApiUrl(`/api/v1/mcp/canvas${suffix}`);
 }
 
 async function mcpFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -19,7 +19,7 @@ async function mcpFetch<T>(path: string, init?: RequestInit): Promise<T> {
     ...(init?.headers as Record<string, string> | undefined),
   };
   if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(mcpUrl(path), { ...init, headers });
+  const res = await fetch(resolveMcpCanvasUrl(path), { ...init, headers });
   const text = await res.text();
   let data: unknown = null;
   try {

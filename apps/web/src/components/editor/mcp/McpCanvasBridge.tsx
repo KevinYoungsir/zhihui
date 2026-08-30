@@ -5,11 +5,11 @@
  * - revision fallback reload when headless writes land
  */
 import { useCallback, useEffect, useRef } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch } from 'react-redux';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import { applyAgentToolOps } from '@/components/editor/panels/agent/runDesignAgent';
-import type { DesignToolContext } from '@/components/editor/panels/agent/designTools';
 import { importDocument } from '@/store/modules/editor';
+import store, { type RootState } from '@/store';
 import {
   fetchProject,
 } from '@/service/projects';
@@ -26,6 +26,17 @@ type Props = {
   pollMs?: number;
 };
 
+type EditorStateReader = () => Pick<RootState, 'editor'>;
+
+/** Stable runtime accessor: every call reads the latest Redux editor state. */
+export function createMcpCanvasEditorAccessor(getState: EditorStateReader) {
+  return {
+    getDocument: (): SceneDocument | null => getState().editor.document,
+    getActiveFrameId: (): string | null =>
+      (getState().editor.document?.activeFrameId as string | null | undefined) || null,
+  };
+}
+
 export function McpCanvasBridge({
   projectId,
   enabled = true,
@@ -33,23 +44,9 @@ export function McpCanvasBridge({
   pollMs = 1500,
 }: Props) {
   const dispatch = useDispatch();
-  const document = useSelector((state: any) => state.editor.document as SceneDocument | null);
-  const activeFrameId = useSelector(
-    (state: any) => state.editor.document?.activeFrameId as string | null | undefined
-  );
   const lastRev = useRef<number | null>(null);
   const applying = useRef(false);
-
-  const buildCtx = useCallback((): DesignToolContext | null => {
-    if (!document) return null;
-    return {
-      dispatch,
-      getDocument: () => document,
-      targetFrameId: activeFrameId || null,
-      allowDestructive: true,
-      skipHistory: false,
-    };
-  }, [dispatch, document, activeFrameId]);
+  const editorAccessor = useRef(createMcpCanvasEditorAccessor(() => store.getState())).current;
 
   const reloadIfRevisionBumped = useCallback(async (pid: string) => {
     try {
@@ -79,8 +76,7 @@ export function McpCanvasBridge({
 
   const applyPending = useCallback(async (pid: string) => {
     if (applying.current) return;
-    const ctx = buildCtx();
-    if (!ctx) return;
+    if (!editorAccessor.getDocument()) return;
     applying.current = true;
     try {
       const batches = await mcpCanvasFetchPending(pid, 8);
@@ -93,8 +89,8 @@ export function McpCanvasBridge({
           await applyAgentToolOps({
             ops,
             dispatch,
-            getDocument: ctx.getDocument,
-            frameId: activeFrameId || null,
+            getDocument: editorAccessor.getDocument,
+            frameId: editorAccessor.getActiveFrameId(),
             source: 'ai',
           });
         }
@@ -106,7 +102,7 @@ export function McpCanvasBridge({
     } finally {
       applying.current = false;
     }
-  }, [buildCtx, dispatch, activeFrameId]);
+  }, [dispatch, editorAccessor]);
 
   useEffect(() => {
     const pid = String(projectId || '').trim();
