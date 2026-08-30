@@ -4,23 +4,36 @@
  *
  * Env:
  *   RECOMBYN_API_URL   default http://127.0.0.1:8000
- *   RECOMBYN_TOKEN     Bearer access token (required)
+ *   RECOMBYN_TOKEN     Legacy web access token
+ *   RECOMBYN_MCP_GRANT Short-lived desktop run grant (preferred)
  *   RECOMBYN_PROJECT_ID default project_id injected into tool calls
+ *   RECOMBYN_RUN_ID    run id bound to the grant
  */
 import readline from 'node:readline';
 
 const API = (process.env.RECOMBYN_API_URL || 'http://127.0.0.1:8000').replace(/\/$/, '');
 const TOKEN = (process.env.RECOMBYN_TOKEN || '').trim();
+const GRANT = (process.env.RECOMBYN_MCP_GRANT || '').trim();
 const DEFAULT_PROJECT = (process.env.RECOMBYN_PROJECT_ID || '').trim();
+const RUN_ID = (process.env.RECOMBYN_RUN_ID || '').trim();
 
 let toolCatalog = [];
 
 async function api(path, body) {
-  const res = await fetch(`${API}/api/v1/mcp/canvas${path}`, {
+  const runScoped = Boolean(GRANT);
+  const scopedPath = runScoped
+    ? path === '/tools'
+      ? '/runs/tools'
+      : path === '/call'
+        ? '/runs/call'
+        : path
+    : path;
+  const res = await fetch(`${API}/api/v1/mcp/canvas${scopedPath}`, {
     method: body ? 'POST' : 'GET',
     headers: {
-      Authorization: `Bearer ${TOKEN}`,
+      Authorization: `Bearer ${GRANT || TOKEN}`,
       'Content-Type': 'application/json',
+      ...(runScoped ? { 'X-Recombyn-Run-Id': RUN_ID } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -125,8 +138,12 @@ async function handleMessage(line) {
 }
 
 async function main() {
-  if (!TOKEN) {
-    console.error('RECOMBYN_TOKEN is required');
+  if (!GRANT && !TOKEN) {
+    console.error('RECOMBYN_MCP_GRANT or RECOMBYN_TOKEN is required');
+    process.exit(1);
+  }
+  if (GRANT && !RUN_ID) {
+    console.error('RECOMBYN_RUN_ID is required with a run grant');
     process.exit(1);
   }
   const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });

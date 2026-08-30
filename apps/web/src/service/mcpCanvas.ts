@@ -3,8 +3,17 @@ import { getToken } from '@/utils/token';
 
 export type McpPendingBatch = {
   batchId?: string;
-  ops?: Array<{ name?: string; args?: Record<string, unknown> }>;
+  runId?: string;
+  ops?: Array<{ name?: string; args?: Record<string, unknown>; op_id?: string }>;
   ts?: number;
+};
+
+export type McpRunGrant = {
+  grant: string;
+  runId: string;
+  projectId: string;
+  allowedTools: string[];
+  expiresIn: number;
 };
 
 export function resolveMcpCanvasUrl(path: string): string {
@@ -74,4 +83,20 @@ export async function mcpCanvasCallTool(
     body: JSON.stringify({ tool, arguments: args }),
   });
   return res?.result;
+}
+
+export async function mcpCanvasCreateRunGrant(
+  runId: string,
+  projectId: string
+): Promise<McpRunGrant> {
+  return mcpFetch<McpRunGrant>('/runs/grants', {
+    method: 'POST',
+    body: JSON.stringify({ run_id: runId, project_id: projectId }),
+  });
+}
+
+export async function mcpCanvasRevokeRunGrant(runId: string): Promise<void> {
+  await mcpFetch<{ ok: boolean }>(`/runs/${encodeURIComponent(runId)}/grants`, {
+    method: 'DELETE',
+  });
 }

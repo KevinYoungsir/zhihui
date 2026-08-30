@@ -35,7 +35,12 @@ def publish_project_revision(project_id: str, revision: int, *, reason: str = "m
         _log.debug("mcp publish_project_revision skipped", exc_info=True)
 
 
-def publish_pending_ops(project_id: str, ops: list[dict[str, Any]]) -> str:
+def publish_pending_ops(
+    project_id: str,
+    ops: list[dict[str, Any]],
+    *,
+    run_id: str | None = None,
+) -> str:
     """Queue validated ops for live editor apply. Returns batch id."""
     pid = str(project_id or "").strip()
     batch_id = secrets.token_hex(8)
@@ -49,7 +54,12 @@ def publish_pending_ops(project_id: str, ops: list[dict[str, Any]]) -> str:
         client = _redis()
         key = f"mcp:pending:{pid}"
         payload = json.dumps(
-            {"batchId": batch_id, "ops": ops, "ts": time.time()},
+            {
+                "batchId": batch_id,
+                "ops": ops,
+                "ts": time.time(),
+                **({"runId": str(run_id)} if run_id else {}),
+            },
             ensure_ascii=False,
         )
         client.rpush(key, payload)
