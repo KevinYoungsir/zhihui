@@ -152,6 +152,7 @@ fn resolve_mcp_script(app: &AppHandle) -> Result<PathBuf, String> {
     let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
       .join("..")
       .join("..")
+      .join("..")
       .join("scripts")
       .join("mcp")
       .join("recombyn_canvas_stdio.mjs");

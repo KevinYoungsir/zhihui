@@ -88,6 +88,10 @@ export function McpCanvasBridge({
         const bid = String(batch.batchId || '').trim();
         const ops = Array.isArray(batch.ops) ? batch.ops : [];
         const runId = String(batch.runId || `mcp-${pid}`);
+        if (canvasToolGateway.isCancelled(runId, pid)) {
+          if (bid) ackIds.push(bid);
+          continue;
+        }
         if (ops.length && bid) {
           let acquired = false;
           try {
@@ -98,9 +102,10 @@ export function McpCanvasBridge({
               projectId: pid,
               operationId: bid,
               ops: filterAllowedToolOps(ops),
-              apply: (canonicalOps) =>
+              apply: (canonicalOps, signal) =>
                 applyAgentToolOps({
                   ops: canonicalOps,
+                  signal,
                   dispatch,
                   getDocument: editorAccessor.getDocument,
                   frameId: editorAccessor.getActiveFrameId(),

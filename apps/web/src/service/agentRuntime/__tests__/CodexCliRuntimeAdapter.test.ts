@@ -18,6 +18,35 @@ function harness() {
 }
 
 describe('CodexCliRuntimeAdapter', () => {
+  it('does not start a process when cancelled during discovery', async () => {
+    const { bridge, grants } = harness();
+    let finish!: (probe: { available: boolean; authenticated: boolean }) => void;
+    vi.mocked(bridge.discover).mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    const adapter = new CodexCliRuntimeAdapter(bridge, grants);
+    const running = adapter.startRun({ runId: 'cancel-discovery', projectId: 'project-1', prompt: 'title', selectedObjectIds: [], runtime: 'cli' });
+    await adapter.cancelRun('cancel-discovery');
+    finish({ available: true, authenticated: true });
+    await running;
+    expect(grants.create).not.toHaveBeenCalled();
+    expect(bridge.start).not.toHaveBeenCalled();
+  });
+
+  it('revokes a grant arriving after cancellation without starting Codex', async () => {
+    const { bridge, grants } = harness();
+    let finish!: () => void;
+    vi.mocked(grants.create).mockImplementation((runId, projectId) => new Promise((resolve) => {
+      finish = () => resolve({ grant: 'mcp_run_fixture', runId, projectId, allowedTools: ['create_text'], expiresIn: 180 });
+    }));
+    const adapter = new CodexCliRuntimeAdapter(bridge, grants);
+    const running = adapter.startRun({ runId: 'cancel-grant', projectId: 'project-1', prompt: 'title', selectedObjectIds: [], runtime: 'cli' });
+    await vi.waitFor(() => expect(grants.create).toHaveBeenCalled());
+    await adapter.cancelRun('cancel-grant');
+    finish();
+    await running;
+    expect(grants.revoke).toHaveBeenCalledWith('cancel-grant');
+    expect(bridge.start).not.toHaveBeenCalled();
+  });
+
   it('mints a scoped grant and revokes it on completion', async () => {
     const { bridge, grants, emit } = harness();
     const adapter = new CodexCliRuntimeAdapter(bridge, grants);

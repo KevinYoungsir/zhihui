@@ -50,6 +50,7 @@ export class ApiRuntimeAdapter implements AgentRuntimeAdapter {
     this.runs.set(request.runId, { controller, done, settle });
     let terminal = false;
     const emit = (event: AgentRunEvent) => {
+      if (terminal) return;
       if (
         event.type === 'run.completed' ||
         event.type === 'run.cancelled' ||
@@ -62,8 +63,10 @@ export class ApiRuntimeAdapter implements AgentRuntimeAdapter {
     emit(this.event(request, { type: 'run.started' }));
     try {
       await this.execute(request, { signal: controller.signal, emit });
-      if (!terminal && !controller.signal.aborted) {
-        emit(this.event(request, { type: 'run.completed' }));
+      if (!terminal) {
+        emit(this.event(request, controller.signal.aborted
+          ? { type: 'run.cancelled', reason: 'cancelled' }
+          : { type: 'run.completed' }));
       }
     } catch (error) {
       if (!terminal && controller.signal.aborted) {

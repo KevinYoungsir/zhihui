@@ -4,6 +4,7 @@ import {
   type McpRunGrant,
 } from '@/service/mcpCanvas';
 import { AgentRunEventBus } from './eventBus';
+import { canvasToolGateway } from './CanvasToolGateway';
 import {
   codexDesktopBridge,
   desktopApiOrigin,
@@ -39,6 +40,8 @@ export class CodexCliRuntimeAdapter implements AgentRuntimeAdapter {
   readonly mode = 'cli' as const;
   private readonly events = new AgentRunEventBus();
   private readonly runs = new Map<string, ActiveCodexRun>();
+  private readonly preparing = new Map<string, AgentRunRequest>();
+  private readonly cancelledRuns = new Set<string>();
   private unlisten: (() => void) | null = null;
 
   constructor(
@@ -55,8 +58,27 @@ export class CodexCliRuntimeAdapter implements AgentRuntimeAdapter {
   }
 
   async startRun(request: AgentRunRequest): Promise<void> {
+    if (this.preparing.has(request.runId) || this.runs.has(request.runId)) {
+      throw new Error(`Codex run already active: ${request.runId}`);
+    }
+    this.preparing.set(request.runId, request);
+    try {
+      await this.startPreparedRun(request);
+    } finally {
+      this.preparing.delete(request.runId);
+    }
+  }
+
+  private preparationCancelled(request: AgentRunRequest): boolean {
+    if (!this.cancelledRuns.has(request.runId)) return false;
+    this.events.emit(this.event(request, { type: 'run.cancelled', reason: 'cancelled' }));
+    return true;
+  }
+
+  private async startPreparedRun(request: AgentRunRequest): Promise<void> {
     if (this.runs.has(request.runId)) throw new Error(`Codex run already active: ${request.runId}`);
     const probe = await this.probe();
+    if (this.preparationCancelled(request)) return;
     if (!probe.available || probe.authenticated === false) {
       this.events.emit(this.event(request, {
         type: 'run.error',
@@ -66,7 +88,13 @@ export class CodexCliRuntimeAdapter implements AgentRuntimeAdapter {
       return;
     }
     await this.ensureListener();
+    if (this.preparationCancelled(request)) return;
     const grant = await this.grants.create(request.runId, request.projectId);
+    if (this.cancelledRuns.has(request.runId)) {
+      await this.grants.revoke(request.runId);
+      this.preparationCancelled(request);
+      return;
+    }
     let settle = () => undefined;
     const terminal = new Promise<void>((resolve) => { settle = resolve; });
     this.runs.set(request.runId, { request, grant, revoked: false, settle });
@@ -89,6 +117,11 @@ export class CodexCliRuntimeAdapter implements AgentRuntimeAdapter {
 
   async cancelRun(runId: string): Promise<void> {
     const active = this.runs.get(runId);
+    const request = active?.request || this.preparing.get(runId);
+    if (request) {
+      this.cancelledRuns.add(runId);
+      canvasToolGateway.cancel(runId, request.projectId);
+    }
     if (!active) return;
     try {
       await this.bridge.cancel(runId);
@@ -100,7 +133,8 @@ export class CodexCliRuntimeAdapter implements AgentRuntimeAdapter {
   }
 
   async dispose(): Promise<void> {
-    await Promise.all([...this.runs.keys()].map((runId) => this.cancelRun(runId)));
+    await Promise.all([...new Set([...this.runs.keys(), ...this.preparing.keys()])]
+      .map((runId) => this.cancelRun(runId)));
     this.unlisten?.();
     this.unlisten = null;
   }
@@ -111,6 +145,7 @@ export class CodexCliRuntimeAdapter implements AgentRuntimeAdapter {
   }
 
   private onNativeEvent(native: CodexNativeEvent): void {
+    if (this.cancelledRuns.has(native.runId)) return;
     const active = this.runs.get(native.runId);
     if (!active) return;
     const { request } = active;

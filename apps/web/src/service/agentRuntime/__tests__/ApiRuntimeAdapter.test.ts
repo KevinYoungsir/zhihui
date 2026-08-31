@@ -10,6 +10,20 @@ const request = {
 };
 
 describe('ApiRuntimeAdapter', () => {
+  it('emits cancellation when an aborted executor resolves normally', async () => {
+    const adapter = new ApiRuntimeAdapter(async (_request, context) => {
+      await new Promise<void>((resolve) => {
+        context.signal.addEventListener('abort', () => resolve(), { once: true });
+      });
+    });
+    const events: string[] = [];
+    adapter.subscribe((event) => events.push(event.type));
+    const running = adapter.startRun(request);
+    await adapter.cancelRun(request.runId);
+    await running;
+    expect(events).toEqual(['run.started', 'run.cancelled']);
+  });
+
   it('normalizes executor failures', async () => {
     const adapter = new ApiRuntimeAdapter(async () => { throw new Error('invalid API key'); });
     const events: string[] = [];
