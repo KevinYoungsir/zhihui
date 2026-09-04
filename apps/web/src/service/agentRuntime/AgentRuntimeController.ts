@@ -21,6 +21,14 @@ type ActiveRuntime = {
   broker: AgentRuntimeBroker;
 };
 
+const CLI_CANVAS_WRITE_TOOLS = new Set([
+  'apply_tool_ops',
+  'create_frame',
+  'create_shape',
+  'create_text',
+  'update_node',
+]);
+
 function nextRunId(): string {
   return `agent-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -35,7 +43,16 @@ function cliPrompt(userMessage: string): string {
   ].join('\n');
 }
 
-function runtimeEventToAgentStep(event: AgentRunEvent): AgentStepEvent | null {
+export function isSuccessfulCliCanvasMutation(event: AgentRunEvent): boolean {
+  return event.type === 'tool.result'
+    && event.ok
+    && Boolean(event.tool && CLI_CANVAS_WRITE_TOOLS.has(event.tool));
+}
+
+export function runtimeEventToAgentStep(
+  event: AgentRunEvent,
+  canvasPainted = false
+): AgentStepEvent | null {
   if (event.type === 'message.delta') return { type: 'token', text: event.text };
   if (event.type === 'tool.call') {
     return {
@@ -59,7 +76,7 @@ function runtimeEventToAgentStep(event: AgentRunEvent): AgentStepEvent | null {
     return { type: 'error', code: event.code, message: event.message };
   }
   if (event.type === 'run.completed') {
-    return { type: 'done', summary: event.summary || '', painted: true };
+    return { type: 'done', summary: event.summary || '', painted: canvasPainted };
   }
   return null;
 }
@@ -101,9 +118,11 @@ export class AgentRuntimeController {
     const cli = new CodexCliRuntimeAdapter();
     const broker = new AgentRuntimeBroker([api, cli]);
     this.active = { runId, broker };
+    let cliCanvasPainted = false;
     const unsubscribe = broker.subscribe((event) => {
       if (event.runtime !== 'cli' || event.runId !== runId) return;
-      const step = runtimeEventToAgentStep(event);
+      if (isSuccessfulCliCanvasMutation(event)) cliCanvasPainted = true;
+      const step = runtimeEventToAgentStep(event, cliCanvasPainted);
       if (step) params.onEvent(step);
     });
     const onAbort = () => { void broker.cancelRun(runId); };

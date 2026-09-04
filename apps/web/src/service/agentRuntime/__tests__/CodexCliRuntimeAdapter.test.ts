@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { CodexCliRuntimeAdapter } from '../CodexCliRuntimeAdapter';
+import { CodexCliRuntimeAdapter, type CodexRunGrantService } from '../CodexCliRuntimeAdapter';
+import type { AgentRunEvent, AgentRunRequest, AgentRuntimeProbe } from '../types';
+import type { McpRunGrant } from '@/service/mcpCanvas';
 import type { CodexDesktopBridge, CodexNativeEvent } from '../tauriBridge';
 
 function harness() {
@@ -103,5 +105,154 @@ describe('CodexCliRuntimeAdapter', () => {
     emit({ runId: 'run-5', kind: 'run.error', code: 'codex_process_failed' });
     await running;
     expect(grants.revoke).toHaveBeenCalledWith('run-5');
+  });
+
+  it('keeps cancellation terminal when Tauri start rejects after Stop', async () => {
+    const { bridge, grants } = harness();
+    const startDeferred = deferred<void>();
+    vi.mocked(bridge.start).mockReturnValue(startDeferred.promise);
+    const adapter = new CodexCliRuntimeAdapter(bridge, grants);
+    const events: AgentRunEvent[] = [];
+    adapter.subscribe((event) => events.push(event));
+    const start = adapter.startRun({ runId: 'cancel-start-race', projectId: 'project-1', prompt: 'create title', selectedObjectIds: [], runtime: 'cli' });
+    await vi.waitFor(() => expect(bridge.start).toHaveBeenCalled());
+    await adapter.cancelRun('cancel-start-race');
+    startDeferred.reject(new Error('cancelled by native start gate'));
+    await start;
+
+    expect(events.map((event) => event.type)).toEqual(['run.started', 'run.cancelled']);
+    expect(grants.revoke).toHaveBeenCalledWith('cancel-start-race');
+    expect(bridge.cancel).toHaveBeenCalledWith('cancel-start-race');
+  });
+});
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+function lifecycleRequest(runId: string): AgentRunRequest {
+  return {
+    runId,
+    projectId: 'project-1',
+    prompt: 'create a title',
+    selectedObjectIds: [],
+    runtime: 'cli',
+  };
+}
+
+function lifecycleGrant(runId: string): McpRunGrant {
+  return {
+    grant: `grant-${runId}`,
+    runId,
+    projectId: 'project-1',
+    allowedTools: ['create_text'],
+    expiresIn: 600,
+  };
+}
+
+function lifecycleHarness() {
+  let listener: ((event: CodexNativeEvent) => void) | null = null;
+  const bridge: CodexDesktopBridge = {
+    discover: vi.fn(async (): Promise<AgentRuntimeProbe> => ({ available: true, authenticated: true })),
+    start: vi.fn(async () => undefined),
+    cancel: vi.fn(async () => undefined),
+    listen: vi.fn(async (next) => {
+      listener = next;
+      return () => {
+        listener = null;
+      };
+    }),
+  };
+  const grants: CodexRunGrantService = {
+    create: vi.fn(async (runId) => lifecycleGrant(runId)),
+    revoke: vi.fn(async () => undefined),
+  };
+  const events: AgentRunEvent[] = [];
+  const adapter = new CodexCliRuntimeAdapter(bridge, grants);
+  adapter.subscribe((event) => events.push(event));
+  return {
+    adapter,
+    bridge,
+    grants,
+    events,
+    emit: (event: CodexNativeEvent) => listener?.(event),
+  };
+}
+
+describe('CodexCliRuntimeAdapter closeout lifecycle', () => {
+  it('emits cancellation when probe preparation is interrupted', async () => {
+    const h = lifecycleHarness();
+    const probe = deferred<AgentRuntimeProbe>();
+    vi.mocked(h.bridge.discover).mockReturnValue(probe.promise);
+
+    const start = h.adapter.startRun(lifecycleRequest('prepare-probe'));
+    await vi.waitFor(() => expect(h.bridge.discover).toHaveBeenCalledOnce());
+    await h.adapter.cancelRun('prepare-probe');
+    probe.resolve({ available: true, authenticated: true });
+    await start;
+
+    expect(h.grants.create).not.toHaveBeenCalled();
+    expect(h.bridge.start).not.toHaveBeenCalled();
+    expect(h.events[h.events.length - 1]).toMatchObject({ type: 'run.cancelled', runId: 'prepare-probe' });
+  });
+
+  it('revokes a grant when cancellation wins before Codex spawn', async () => {
+    const h = lifecycleHarness();
+    const pendingGrant = deferred<McpRunGrant>();
+    vi.mocked(h.grants.create).mockReturnValue(pendingGrant.promise);
+
+    const start = h.adapter.startRun(lifecycleRequest('prepare-grant'));
+    await vi.waitFor(() => expect(h.grants.create).toHaveBeenCalledWith('prepare-grant', 'project-1'));
+    await h.adapter.cancelRun('prepare-grant');
+    pendingGrant.resolve(lifecycleGrant('prepare-grant'));
+    await start;
+
+    expect(h.bridge.start).not.toHaveBeenCalled();
+    expect(h.grants.revoke).toHaveBeenCalledWith('prepare-grant');
+    expect(h.events[h.events.length - 1]).toMatchObject({ type: 'run.cancelled', runId: 'prepare-grant' });
+  });
+
+  it('revokes the grant and emits a controlled error when Codex spawn fails', async () => {
+    const h = lifecycleHarness();
+    vi.mocked(h.bridge.start).mockRejectedValue(new Error('spawn failed'));
+
+    await h.adapter.startRun(lifecycleRequest('spawn-error'));
+
+    expect(h.grants.revoke).toHaveBeenCalledWith('spawn-error');
+    expect(h.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'run.started', runId: 'spawn-error' }),
+      expect.objectContaining({ type: 'run.error', code: 'codex_start_failed', runId: 'spawn-error' }),
+    ]));
+  });
+
+  it('revokes the grant and settles on a native runtime error', async () => {
+    const h = lifecycleHarness();
+    const start = h.adapter.startRun(lifecycleRequest('native-error'));
+    await vi.waitFor(() => expect(h.bridge.start).toHaveBeenCalledOnce());
+    h.emit({ runId: 'native-error', kind: 'run.error', code: 'process_timeout', text: 'timed out' });
+    await start;
+
+    expect(h.grants.revoke).toHaveBeenCalledWith('native-error');
+    expect(h.events[h.events.length - 1]).toMatchObject({ type: 'run.error', runId: 'native-error', code: 'process_timeout' });
+  });
+
+  it('cancels an active run and ignores late native events', async () => {
+    const h = lifecycleHarness();
+    const start = h.adapter.startRun(lifecycleRequest('active-cancel'));
+    await vi.waitFor(() => expect(h.bridge.start).toHaveBeenCalledOnce());
+    await h.adapter.cancelRun('active-cancel');
+    await start;
+    const eventCount = h.events.length;
+
+    h.emit({ runId: 'active-cancel', kind: 'tool.result', tool: 'create_text', ok: true });
+
+    expect(h.bridge.cancel).toHaveBeenCalledWith('active-cancel');
+    expect(h.grants.revoke).toHaveBeenCalledWith('active-cancel');
+    expect(h.events).toHaveLength(eventCount);
   });
 });

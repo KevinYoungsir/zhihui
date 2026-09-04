@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  codexDesktopBridge,
+  probeCodexRuntime,
   loadAgentRuntimePreference,
   saveAgentRuntimePreference,
   type AgentRuntimeMode,
@@ -19,7 +19,7 @@ export default function AgentRuntimeSettings(): ReactNode {
   const refresh = useCallback(async () => {
     setProbe((current) => ({ ...current, loading: true }));
     try {
-      setProbe({ ...(await codexDesktopBridge.discover()), loading: false });
+      setProbe({ ...(await probeCodexRuntime()), loading: false });
     } catch {
       setProbe({ available: false, reason: 'unavailable', loading: false });
     }

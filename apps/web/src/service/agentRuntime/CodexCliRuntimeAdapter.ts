@@ -109,6 +109,10 @@ export class CodexCliRuntimeAdapter implements AgentRuntimeAdapter {
       });
     } catch (error) {
       await this.finalize(request.runId);
+      // A real Tauri start can still be resolving while the user presses
+      // Stop. Cancellation has already emitted the terminal cancelled event;
+      // do not append a misleading startup error after that terminal state.
+      if (this.cancelledRuns.has(request.runId)) return;
       this.events.emit(this.event(request, { type: 'run.error', code: 'codex_start_failed', message: error instanceof Error ? error.message : String(error) }));
       return;
     }

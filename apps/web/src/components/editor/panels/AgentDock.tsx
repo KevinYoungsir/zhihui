@@ -112,7 +112,11 @@ import {
   buildSpatialSummary,
   type AgentStepEvent,
 } from '@/components/editor/panels/agent/runDesignAgent';
-import { AgentRuntimeController } from '@/service/agentRuntime';
+import {
+  AgentRuntimeController,
+  loadAgentRuntimePreference,
+  useAgentRuntimeAvailability,
+} from '@/service/agentRuntime';
 import {
   canAttachNodeToChat
 } from '@/components/rcb/scene/document/mediaLifecycle';
@@ -762,7 +766,7 @@ function AgentDock({
 
   const [models, setModels] = useState<LlmModel[]>([]);
   const [modelsStatus, setModelsStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
-  const [available, setAvailable] = useState<boolean | null>(null);
+  const [apiAvailable, setAvailable] = useState<boolean | null>(null);
   const [model, setModel] = useState('auto');
   const [designIntensity, setDesignIntensity] = useState(() => loadDesignIntensity());
   useEffect(() => {
@@ -922,6 +926,11 @@ function AgentDock({
   const draftConsumeKeyRef = useRef<string | null>(null);
   const [skillsWanted, setSkillsWanted] = useState(false);
 
+  const { available, usesApi } = useAgentRuntimeAvailability(
+    apiAvailable,
+    interactionMode === 'agent' || interactionMode === 'ask'
+  );
+
   const modelsQuery = useQuery({
     ...apiQuery.chatGetModels.queryOptions(),
     staleTime: 60_000,
@@ -956,7 +965,7 @@ function AgentDock({
       setModels([]);
       setModelsStatus('error');
       setAvailable(false);
-      if (!modelsErrToastRef.current) {
+      if (usesApi && !modelsErrToastRef.current) {
         modelsErrToastRef.current = true;
         const err = modelsQuery.error;
         message.error(
@@ -986,7 +995,7 @@ function AgentDock({
       if (prev && list.some((m) => m.id === prev)) return prev;
       return 'auto';
     });
-    if (!res.available && !modelsUnavailableWarnRef.current) {
+    if (usesApi && !res.available && !modelsUnavailableWarnRef.current) {
       modelsUnavailableWarnRef.current = true;
       message.warning(
         '未配置 API Key。请在 apps/api/.env 中设置 DEEPSEEK_API_KEY 或 LLM_API_KEY。'
@@ -1000,6 +1009,7 @@ function AgentDock({
     modelsQuery.isFetched,
     modelsQuery.error,
     canPickModel,
+    usesApi,
   ]);
 
   useEffect(() => {
@@ -2913,7 +2923,7 @@ function AgentDock({
           if (ev.type === 'paused' && ev.taskId) liveDesignTaskRef.current = ev.taskId;
           onDesignEvent(ev);
         },
-      });
+      }, { preference: loadAgentRuntimePreference() });
     } finally {
       dispatch(setAgentBusy(false));
       if (designMutable.canvasMutated && checkpointsRef.current.has(userMsg.id)) {

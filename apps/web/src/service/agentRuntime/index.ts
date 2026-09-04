@@ -6,3 +6,4 @@ export * from './CanvasToolGateway';
 export * from './CodexCliRuntimeAdapter';
 export * from './preference';
 export * from './tauriBridge';
+export * from './useAgentRuntimeAvailability';
