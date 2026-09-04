@@ -70,6 +70,7 @@ def _persist_ops(
     ops: list[dict[str, Any]],
     *,
     run_id: str | None = None,
+    operation_id: str | None = None,
 ) -> dict[str, Any]:
     row = load_writable_project(user_id, project_id)
     doc = _project_document(row)
@@ -79,7 +80,9 @@ def _persist_ops(
     headless_candidates = [o for o in validated if not is_live_only_tool(str(o.get("name") or ""))]
 
     if live or live_only:
-        batch_id = publish_pending_ops(project_id, validated, run_id=run_id)
+        batch_id = publish_pending_ops(
+            project_id, validated, run_id=run_id, operation_id=operation_id
+        )
         return {
             "status": "queued_live",
             "applied": 0,
@@ -93,7 +96,9 @@ def _persist_ops(
     patch = ops_to_document_patch(doc, headless_candidates)
     if not patch:
         if live_only:
-            batch_id = publish_pending_ops(project_id, validated, run_id=run_id)
+            batch_id = publish_pending_ops(
+                project_id, validated, run_id=run_id, operation_id=operation_id
+            )
             return {
                 "status": "queued_offline",
                 "applied": 0,
@@ -147,6 +152,7 @@ def call_mcp_canvas_tool(
     tool: str,
     arguments: dict[str, Any] | None,
     run_id: str | None = None,
+    operation_id: str | None = None,
 ) -> Any:
     name = str(tool or "").strip()
     if not name:
@@ -188,7 +194,13 @@ def call_mcp_canvas_tool(
         raw_ops = args.get("ops")
         if not isinstance(raw_ops, list) or not raw_ops:
             raise McpCanvasError("ops must be a non-empty array", code="bad_request")
-        return _persist_ops(user_id, project_id, raw_ops, run_id=run_id)
+        return _persist_ops(
+            user_id,
+            project_id,
+            raw_ops,
+            run_id=run_id,
+            operation_id=operation_id,
+        )
 
     if is_canvas_write_tool(name):
         return _persist_ops(
@@ -196,6 +208,7 @@ def call_mcp_canvas_tool(
             project_id,
             [{"name": name, "args": args}],
             run_id=run_id,
+            operation_id=operation_id,
         )
 
     raise McpCanvasError(f"unsupported tool {name!r}", code="unsupported_tool")

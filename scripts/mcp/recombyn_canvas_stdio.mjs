@@ -19,7 +19,7 @@ const RUN_ID = (process.env.RECOMBYN_RUN_ID || '').trim();
 
 let toolCatalog = [];
 
-async function api(path, body) {
+async function api(path, body, operationId) {
   const runScoped = Boolean(GRANT);
   const scopedPath = runScoped
     ? path === '/tools'
@@ -33,6 +33,7 @@ async function api(path, body) {
     headers: {
       Authorization: `Bearer ${GRANT || TOKEN}`,
       'Content-Type': 'application/json',
+      ...(operationId ? { 'X-Request-Id': operationId } : {}),
       ...(runScoped ? { 'X-Recombyn-Run-Id': RUN_ID } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
@@ -53,6 +54,11 @@ async function api(path, body) {
 
 function injectProject(args) {
   const out = { ...(args || {}) };
+  if (GRANT && DEFAULT_PROJECT) {
+    delete out.projectId;
+    out.project_id = DEFAULT_PROJECT;
+    return out;
+  }
   if (!out.project_id && !out.projectId && DEFAULT_PROJECT) {
     out.project_id = DEFAULT_PROJECT;
   }
@@ -113,7 +119,14 @@ async function handleMessage(line) {
     if (method === 'tools/call') {
       const name = params?.name;
       const args = injectProject(params?.arguments || {});
-      const data = await api('/call', { tool: name, arguments: args });
+      const operationId = params?.operationId || params?.operation_id || (
+        id != null ? `${RUN_ID || 'mcp'}:${String(id)}` : undefined
+      );
+      const data = await api(
+        '/call',
+        { tool: name, arguments: args, ...(operationId ? { operationId } : {}) },
+        operationId
+      );
       send({
         jsonrpc: '2.0',
         id,
@@ -144,6 +157,10 @@ async function main() {
   }
   if (GRANT && !RUN_ID) {
     console.error('RECOMBYN_RUN_ID is required with a run grant');
+    process.exit(1);
+  }
+  if (GRANT && !DEFAULT_PROJECT) {
+    console.error('RECOMBYN_PROJECT_ID is required with a run grant');
     process.exit(1);
   }
   const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });

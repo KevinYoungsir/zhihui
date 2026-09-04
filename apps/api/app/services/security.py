@@ -185,10 +185,20 @@ def _rl_redis_incr(key: str, window: int) -> int | None:
         if not url:
             return None
         r = redis.Redis.from_url(url, socket_connect_timeout=0.4, socket_timeout=0.4)
-        pipe = r.pipeline()
-        pipe.incr(key)
-        pipe.expire(key, max(1, window))
-        n, _ = pipe.execute()
+        # Fixed window: only the first hit sets the TTL. Refreshing EXPIRE on every
+        # denied request turns a busy polling client into a permanent lockout.
+        n = r.eval(
+            """
+            local count = redis.call('INCR', KEYS[1])
+            if count == 1 then
+              redis.call('EXPIRE', KEYS[1], ARGV[1])
+            end
+            return count
+            """,
+            1,
+            key,
+            max(1, window),
+        )
         return int(n or 0)
     except Exception:
         return None

@@ -40,10 +40,12 @@ def publish_pending_ops(
     ops: list[dict[str, Any]],
     *,
     run_id: str | None = None,
+    operation_id: str | None = None,
 ) -> str:
     """Queue validated ops for live editor apply. Returns batch id."""
     pid = str(project_id or "").strip()
-    batch_id = secrets.token_hex(8)
+    logical_id = str(operation_id or "").strip()
+    batch_id = logical_id or secrets.token_hex(8)
     if not pid or not ops:
         return batch_id
     try:
@@ -53,9 +55,24 @@ def publish_pending_ops(
             return batch_id
         client = _redis()
         key = f"mcp:pending:{pid}"
+        if logical_id:
+            # Retrying the same logical MCP operation before ACK must not append
+            # a second pending copy.
+            for raw in client.lrange(key, 0, -1) or []:
+                try:
+                    item = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                existing_id = str(
+                    item.get("operationId") or item.get("batchId") or ""
+                ).strip()
+                existing_run = str(item.get("runId") or "").strip()
+                if existing_id == logical_id and existing_run == str(run_id or "").strip():
+                    return str(item.get("batchId") or logical_id)
         payload = json.dumps(
             {
                 "batchId": batch_id,
+                "operationId": logical_id or batch_id,
                 "ops": ops,
                 "ts": time.time(),
                 **({"runId": str(run_id)} if run_id else {}),

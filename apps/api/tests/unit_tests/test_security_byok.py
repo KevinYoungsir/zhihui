@@ -2,6 +2,9 @@
 """Security: AES BYOK, redaction, rate limit, skill ACL."""
 from __future__ import annotations
 
+import sys
+from types import SimpleNamespace
+
 from app.services.security import (
     api_key_hint,
     check_rate_limit,
@@ -117,3 +120,31 @@ def test_rate_limit_trips(monkeypatch):
     ok, limit = check_rate_limit(path=path, identity=identity)
     assert not ok
     assert limit == 3
+
+
+def test_redis_rate_limit_sets_ttl_only_on_first_hit(monkeypatch):
+    from app.core.config import settings
+    from app.services import security as sec
+
+    class FakeRedis:
+        def __init__(self):
+            self.counts: dict[str, int] = {}
+            self.expire_calls: list[tuple[str, int]] = []
+
+        def eval(self, script, _num_keys, key, window):
+            self.counts[key] = self.counts.get(key, 0) + 1
+            if self.counts[key] == 1:
+                self.expire_calls.append((key, int(window)))
+            assert "if count == 1" in script
+            return self.counts[key]
+
+    fake = FakeRedis()
+    redis_module = SimpleNamespace(
+        Redis=SimpleNamespace(from_url=lambda *_args, **_kwargs: fake)
+    )
+    monkeypatch.setitem(sys.modules, "redis", redis_module)
+    monkeypatch.setattr(settings, "redis_url", "redis://unit-test")
+
+    assert sec._rl_redis_incr("rl:test", 60) == 1
+    assert sec._rl_redis_incr("rl:test", 60) == 2
+    assert fake.expire_calls == [("rl:test", 60)]

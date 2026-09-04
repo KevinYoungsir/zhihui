@@ -20,12 +20,16 @@ import {
   mcpCanvasFetchPending,
   mcpCanvasHeartbeat,
 } from '@/service/mcpCanvas';
+import { consumeMcpPendingBatches } from './mcpPendingConsumer';
 
 type Props = {
   projectId: string | null | undefined;
   enabled?: boolean;
   heartbeatMs?: number;
   pollMs?: number;
+  revisionPollMs?: number;
+  /** Test/dev injection point; production defaults to the real API ACK. */
+  ack?: (projectId: string, batchIds: string[]) => Promise<unknown>;
 };
 
 type EditorStateReader = () => Pick<RootState, 'editor'>;
@@ -36,6 +40,15 @@ export function createMcpCanvasEditorAccessor(getState: EditorStateReader) {
     getDocument: (): SceneDocument | null => getState().editor.document,
     getActiveFrameId: (): string | null =>
       (getState().editor.document?.activeFrameId as string | null | undefined) || null,
+    getSnapshot: () => {
+      const editor = getState().editor;
+      const delta = editor.document?.deltaSetLike || {};
+      return {
+        document: editor.document,
+        nodeCount: Object.keys(delta).filter((id) => id !== 'ROOT').length,
+        revision: Math.max(0, Number(editor.sceneRevision) || 0),
+      };
+    },
   };
 }
 
@@ -44,6 +57,8 @@ export function McpCanvasBridge({
   enabled = true,
   heartbeatMs = 4000,
   pollMs = 1500,
+  revisionPollMs = 30000,
+  ack = mcpCanvasAckPending,
 }: Props) {
   const dispatch = useDispatch();
   const lastRev = useRef<number | null>(null);
@@ -83,51 +98,27 @@ export function McpCanvasBridge({
     try {
       const batches = await mcpCanvasFetchPending(pid, 8);
       if (!batches.length) return;
-      const ackIds: string[] = [];
-      for (const batch of batches) {
-        const bid = String(batch.batchId || '').trim();
-        const ops = Array.isArray(batch.ops) ? batch.ops : [];
-        const runId = String(batch.runId || `mcp-${pid}`);
-        if (canvasToolGateway.isCancelled(runId, pid)) {
-          if (bid) ackIds.push(bid);
-          continue;
-        }
-        if (ops.length && bid) {
-          let acquired = false;
-          try {
-            canvasToolGateway.acquire(runId, pid);
-            acquired = true;
-            await canvasToolGateway.apply({
-              runId,
-              projectId: pid,
-              operationId: bid,
-              ops: filterAllowedToolOps(ops),
-              apply: (canonicalOps, signal) =>
-                applyAgentToolOps({
-                  ops: canonicalOps,
-                  signal,
-                  dispatch,
-                  getDocument: editorAccessor.getDocument,
-                  frameId: editorAccessor.getActiveFrameId(),
-                  source: 'ai',
-                }),
-            });
-          } catch {
-            // Preserve this and subsequent batches; the next poll retries after the owner releases.
-            break;
-          } finally {
-            if (acquired) canvasToolGateway.release(runId, pid);
-          }
-        }
-        if (bid) ackIds.push(bid);
-      }
-      if (ackIds.length) {
-        await mcpCanvasAckPending(pid, ackIds);
-      }
+      await consumeMcpPendingBatches({
+        projectId: pid,
+        batches,
+        gateway: canvasToolGateway,
+        filterOps: (ops) => filterAllowedToolOps(ops || []),
+        getSnapshot: editorAccessor.getSnapshot,
+        applyOps: (canonicalOps, signal) =>
+          applyAgentToolOps({
+            ops: canonicalOps,
+            signal,
+            dispatch,
+            getDocument: editorAccessor.getDocument,
+            frameId: editorAccessor.getActiveFrameId(),
+            source: 'ai',
+          }),
+        ack,
+      });
     } finally {
       applying.current = false;
     }
-  }, [dispatch, editorAccessor]);
+  }, [dispatch, editorAccessor, ack]);
 
   useEffect(() => {
     const pid = String(projectId || '').trim();
@@ -145,20 +136,43 @@ export function McpCanvasBridge({
 
     const tick = async () => {
       if (cancelled) return;
-      await heartbeat();
-      await applyPending(pid);
+      try {
+        await applyPending(pid);
+      } catch {
+        /* MCP disabled, offline, or rate limited; the next poll retries. */
+      }
+    };
+
+    const checkRevision = async () => {
+      if (cancelled) return;
       await reloadIfRevisionBumped(pid);
     };
 
+    void heartbeat();
     void tick();
+    void checkRevision();
     const hb = window.setInterval(() => void heartbeat(), heartbeatMs);
     const poll = window.setInterval(() => void tick(), pollMs);
+    const revisionPoll = window.setInterval(
+      () => void checkRevision(),
+      revisionPollMs
+    );
     return () => {
       cancelled = true;
       window.clearInterval(hb);
       window.clearInterval(poll);
+      window.clearInterval(revisionPoll);
     };
-  }, [projectId, enabled, heartbeatMs, pollMs, applyPending, reloadIfRevisionBumped]);
+  }, [
+    projectId,
+    enabled,
+    heartbeatMs,
+    pollMs,
+    revisionPollMs,
+    ack,
+    applyPending,
+    reloadIfRevisionBumped,
+  ]);
 
   return null;
 }

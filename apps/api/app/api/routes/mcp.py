@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 from app.api.deps import CurrentUser
 from app.core.config import settings
@@ -29,6 +29,14 @@ router = APIRouter(prefix="/mcp/canvas", tags=["mcp-canvas"])
 class McpToolCallIn(BaseModel):
     tool: str = Field(..., min_length=1, max_length=128)
     arguments: dict[str, Any] = Field(default_factory=dict)
+    # Stable logical operation identifier supplied by MCP clients. The camelCase
+    # alias keeps compatibility with the existing TypeScript/runtime contract.
+    operation_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("operation_id", "operationId"),
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
 
 
 class McpHeartbeatIn(BaseModel):
@@ -90,6 +98,7 @@ def call_tool(locale: LocaleDep, current_user: CurrentUser, body: McpToolCallIn)
             user_id=current_user.id,
             tool=body.tool,
             arguments=body.arguments,
+            operation_id=body.operation_id,
         )
         return {"ok": True, "result": result}
     except Exception as exc:
@@ -173,6 +182,7 @@ def call_run_tool(
             tool=body.tool,
             arguments=args,
             run_id=grant.run_id,
+            operation_id=body.operation_id,
         )
         return {"ok": True, "result": result}
     except McpRunGrantError as exc:

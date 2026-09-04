@@ -221,6 +221,32 @@ def test_scene_nodes_from_document_with_shape():
     assert frames == []
 
 
+def test_scene_nodes_prefers_active_page_when_legacy_page_children_is_empty():
+    doc = {
+        "activePageId": "page_1",
+        "pages": [{"id": "page_1", "children": ["n1"]}],
+        "pageChildren": [],
+        "frames": [],
+        "deltaSetLike": {
+            "ROOT": {"id": "ROOT", "key": "entry", "children": ["n1"]},
+            "n1": {
+                "id": "n1",
+                "key": "text",
+                "x": 5,
+                "y": 6,
+                "width": 40,
+                "height": 30,
+                "attrs": {"text": "live canvas"},
+            },
+        },
+    }
+
+    nodes = scene_nodes_from_document(doc)
+
+    assert [node["id"] for node in nodes] == ["n1"]
+    assert nodes[0]["text"] == "live canvas"
+
+
 @patch("app.services.mcp.dispatch.has_live_session", return_value=False)
 @patch("app.services.mcp.dispatch.publish_pending_ops")
 @patch("app.services.mcp.dispatch.publish_project_revision")
@@ -269,6 +295,32 @@ def test_call_create_shape_live_queue(mock_load, mock_pending, _live):
     assert out["status"] == "queued_live"
     assert out["batchId"] == "batch123"
     mock_pending.assert_called_once()
+
+
+@patch("app.services.mcp.dispatch.has_live_session", return_value=True)
+@patch("app.services.mcp.dispatch.publish_pending_ops", return_value="run-1:rpc-7")
+@patch("app.services.mcp.dispatch.load_writable_project")
+def test_call_live_queue_forwards_stable_operation_id(mock_load, mock_pending, _live):
+    mock_load.return_value = {"id": "p1", "revision": 2, "document": _empty_doc()}
+
+    out = call_mcp_canvas_tool(
+        user_id="u1",
+        tool="create_text",
+        arguments={"project_id": "p1", "text": "stable", "x": 0, "y": 0},
+        run_id="run-1",
+        operation_id="run-1:rpc-7",
+    )
+
+    assert out["batchId"] == "run-1:rpc-7"
+    mock_pending.assert_called_once()
+    assert mock_pending.call_args.kwargs == {
+        "run_id": "run-1",
+        "operation_id": "run-1:rpc-7",
+    }
+    queued_ops = mock_pending.call_args.args[1]
+    assert queued_ops[0]["name"] == "create_text"
+    assert queued_ops[0]["args"] == {"text": "stable", "x": 0, "y": 0}
+    assert queued_ops[0]["op_id"].startswith("op-0-create_text-")
 
 
 @patch("app.services.mcp.dispatch.load_writable_project")

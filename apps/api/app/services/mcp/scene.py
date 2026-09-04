@@ -126,10 +126,32 @@ def scene_nodes_from_document(doc: dict[str, Any] | None) -> list[dict[str, Any]
                 doc, sid, child, frame_id=fid, origin_x=fx, origin_y=fy
             )
 
+    root_ids: list[str] | None = None
+    pages = doc.get("pages")
+    if isinstance(pages, list) and pages:
+        active_page_id = str(doc.get("activePageId") or "").strip()
+        active_page = next(
+            (
+                page
+                for page in pages
+                if isinstance(page, dict)
+                and str(page.get("id") or "").strip() == active_page_id
+            ),
+            None,
+        )
+        if active_page is None:
+            active_page = next((page for page in pages if isinstance(page, dict)), None)
+        active_children = active_page.get("children") if isinstance(active_page, dict) else None
+        if isinstance(active_children, list):
+            # Multi-page SceneDocument SoT: the active page may intentionally be empty.
+            root_ids = [str(c) for c in active_children if str(c or "").strip()]
+
     page_children = doc.get("pageChildren")
-    if isinstance(page_children, list):
+    if root_ids is None and isinstance(page_children, list) and page_children:
+        # Legacy single-page documents stored the render order at the top level.
         root_ids = [str(c) for c in page_children if str(c or "").strip()]
-    else:
+
+    if root_ids is None:
         root = delta.get("ROOT")
         root_ids = (
             [str(c) for c in root.get("children") or [] if str(c or "").strip()]
