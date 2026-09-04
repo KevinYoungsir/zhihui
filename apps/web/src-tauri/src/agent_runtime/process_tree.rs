@@ -99,3 +99,32 @@ impl Drop for ProcessTreeTerminator {
     }
   }
 }
+
+#[cfg(all(test, windows))]
+mod tests {
+  use super::*;
+  use std::thread;
+  use std::time::Duration;
+
+  #[test]
+  fn closing_job_handle_kills_process_tree() {
+    let mut command = Command::new("cmd.exe");
+    command.args(["/C", "ping.exe -n 30 127.0.0.1 > NUL"]);
+    configure_process_group(&mut command);
+    let mut child = command.spawn().expect("cmd.exe should be available on Windows");
+    let terminator = ProcessTreeTerminator::attach(&child).expect("job object should attach");
+    let started = std::time::Instant::now();
+    drop(terminator);
+
+    for _ in 0..40 {
+      if let Some(_status) = child.try_wait().expect("child status should be readable") {
+        assert!(started.elapsed() < Duration::from_secs(2));
+        return;
+      }
+      thread::sleep(Duration::from_millis(25));
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    panic!("job handle close did not terminate the process tree");
+  }
+}

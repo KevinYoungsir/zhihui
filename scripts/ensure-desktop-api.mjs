@@ -35,7 +35,7 @@ function request(method, urlPath, { timeoutMs = 1200 } = {}) {
   });
 }
 
-async function healthOk(timeoutMs = 800) {
+async function healthOk(timeoutMs = 5000) {
   const res = await request('GET', '/api/v1/health', { timeoutMs });
   return res.status > 0 && res.status < 500;
 }
@@ -75,7 +75,7 @@ export async function ensureDesktopApi() {
     if (child.exitCode != null) {
       throw new Error(`[desktop] API exited early (code ${child.exitCode})`);
     }
-    if (await healthOk(1200)) {
+    if (await healthOk()) {
       console.log(`[desktop] API ready at http://${HOST}:${PORT}`);
       return { started: true, child };
     }

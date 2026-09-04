@@ -33,7 +33,7 @@ pub fn parse_codex_jsonl(run_id: &str, line: &str) -> Option<CodexRunEvent> {
   let event_type = value.get("type")?.as_str()?.trim();
   let item = value.get("item");
   match event_type {
-    "item.completed" | "item.updated" => {
+    "item.completed" | "item.started" | "item.updated" => {
       let item_type = item.and_then(|row| row.get("type")).and_then(Value::as_str).unwrap_or("");
       if item_type == "agent_message" {
         return Some(CodexRunEvent {
@@ -143,6 +143,18 @@ mod tests {
     assert_eq!(event.kind, "tool.result");
     assert_eq!(event.tool.as_deref(), Some("create_text"));
     assert_eq!(event.ok, Some(true));
+  }
+
+  #[test]
+  fn parses_mcp_tool_start() {
+    let event = parse_codex_jsonl(
+      "run-1",
+      r#"{"type":"item.started","item":{"type":"mcp_tool_call","id":"call-1","tool":"get_scene_summary","status":"in_progress"}}"#,
+    )
+    .unwrap();
+    assert_eq!(event.kind, "tool.call");
+    assert_eq!(event.tool.as_deref(), Some("get_scene_summary"));
+    assert_eq!(event.call_id.as_deref(), Some("call-1"));
   }
 
   #[test]
